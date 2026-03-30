@@ -5,5 +5,5 @@ export const TYPE_CFG = {
   shopping: { emoji: "🛍️", label: "購物", bg: "#FCE4EC" },
   transport: { emoji: "🚗", label: "交通", bg: "#E3F2FD" },
 };
-export const DEFAULT_EXP_CATS = ["餐飲", "交通", "門票", "購物", "住宿", "其他"];
+export const DEFAULT_EXP_CATS = ["exp.cat_food", "exp.cat_transport", "exp.cat_ticket", "exp.cat_shopping", "exp.cat_stay", "exp.cat_other"];
 export const CURRENCIES = { KRW: { symbol: "₩", label: "韓幣" }, TWD: { symbol: "NT$", label: "台幣" }, JPY: { symbol: "¥", label: "日幣" }, THB: { symbol: "฿", label: "泰銖" }, USD: { symbol: "$", label: "美金" } };

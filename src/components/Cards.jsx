@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../lib/I18nContext.jsx';
 
 export function TimePicker({ value, onChange, label }) {
   const parts = (value && value !== "—") ? value.split(":").map(Number) : [9, 0];
@@ -24,12 +25,13 @@ export function TimePicker({ value, onChange, label }) {
 }
 
 export function FlightCard({ flight, direction }) {
+  const { t } = useI18n();
   if (!flight?.code) return null;
   return (
     <div style={{ background: "linear-gradient(135deg,#4A90D9,#357ABD)", borderRadius: 14, padding: 18, color: "white", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
-        <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 500 }}>{direction === "out" ? "去程" : "回程"}</span>
+        <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 500 }}>{direction === "out" ? t("trip.flight_out") : t("trip.flight_in")}</span>
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>{flight.code}</span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
@@ -38,14 +40,15 @@ export function FlightCard({ flight, direction }) {
         <div style={{ textAlign: "right" }}><div style={{ fontSize: 26, fontWeight: 800 }}>{flight.to}</div><div style={{ fontSize: 10, opacity: 0.7, marginTop: 2 }}>{flight.toName}</div></div>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(255,255,255,0.15)", paddingTop: 10, marginTop: 6 }}>
-        <div><div style={{ fontSize: 9, opacity: 0.6 }}>出發</div><div style={{ fontSize: 13, fontWeight: 600 }}>{flight.depart}</div></div>
-        <div style={{ textAlign: "right" }}><div style={{ fontSize: 9, opacity: 0.6 }}>抵達</div><div style={{ fontSize: 13, fontWeight: 600 }}>{flight.arrive}</div></div>
+        <div><div style={{ fontSize: 9, opacity: 0.6 }}>{t("trip.depart")}</div><div style={{ fontSize: 13, fontWeight: 600 }}>{flight.depart}</div></div>
+        <div style={{ textAlign: "right" }}><div style={{ fontSize: 9, opacity: 0.6 }}>{t("trip.arrive")}</div><div style={{ fontSize: 13, fontWeight: 600 }}>{flight.arrive}</div></div>
       </div>
     </div>
   );
 }
 
 export function AccommodationCard({ accom }) {
+  const { t } = useI18n();
   const a = accom;
   if (!a?.name) return null;
   return (
@@ -59,7 +62,7 @@ export function AccommodationCard({ accom }) {
         {(a.rating || a.reviews) && (
           <div style={{ textAlign: "right", flexShrink: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 700 }}>⭐ {a.rating}</div>
-            <div style={{ fontSize: 10, color: "#999" }}>{a.reviews} 則評價</div>
+            <div style={{ fontSize: 10, color: "#999" }}>{a.reviews} {t("trip.accom_reviews")}</div>
           </div>
         )}
       </div>
@@ -68,7 +71,7 @@ export function AccommodationCard({ accom }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 12 }}>
         {(a.features || []).map(f => <span key={f} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: "#F5F2ED", color: "#666" }}>{f}</span>)}
       </div>
-      {a.url && <a href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#FF5A5F", fontWeight: 600, textDecoration: "none" }}>查看房源 →</a>}
+      {a.url && <a href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#FF5A5F", fontWeight: 600, textDecoration: "none" }}>{t("trip.accom_view")}</a>}
     </div>
   );
 }

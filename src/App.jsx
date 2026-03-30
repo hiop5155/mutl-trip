@@ -3,14 +3,16 @@ import Dashboard from './components/Dashboard.jsx';
 import TripPlanner from './components/TripPlanner.jsx';
 import { auth } from './lib/firebase.js';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { useI18n } from './lib/I18nContext.jsx';
 
-// 💌 你的專屬白名單：只有這些 Google 信箱才能進去看行程
+// whitelist
 const ALLOWED_EMAILS = [
   "hiop5155@gmail.com",
   "kj8212123@gmail.com",
 ];
 
 export default function App() {
+  const { lang, setLang, theme, setTheme, t } = useI18n();
   const [currentTrip, setCurrentTrip] = useState(null);
 
   // user=undefined 代表還在「檢查中」，避免畫面閃爍
@@ -53,20 +55,20 @@ export default function App() {
   };
 
   if (user === undefined) {
-    return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FAF7F2", color: "#999" }}>登入狀態確認中...</div>;
+    return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-main)", color: "var(--text-muted)" }}>{t('app.loading')}</div>;
   }
 
   // 門擋：只要沒登入，或是信箱不符合，就只會看到這個畫面
   if (!user || !isAllowed) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FAF7F2", padding: 20 }}>
-        <div style={{ background: "white", padding: "50px 40px", borderRadius: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.05)", textAlign: "center", maxWidth: 400, width: "100%" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-main)", padding: 20 }}>
+        <div style={{ background: "var(--bg-card)", padding: "50px 40px", borderRadius: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.05)", textAlign: "center", maxWidth: 400, width: "100%" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>✈️</div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#2D2926", margin: "0 0 10px 0" }}>旅行手帳系統</h1>
-          <p style={{ fontSize: 13, color: "#999", marginBottom: 36, lineHeight: 1.6 }}>這是一個私人專屬的行程規劃空間<br />請使用受邀的 Google 帳號登入</p>
-          <button onClick={handleLogin} style={{ width: "100%", padding: 14, background: "#2D2926", color: "white", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, transition: "transform 0.2s" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--text-main)", margin: "0 0 10px 0" }}>{t('app.title')}</h1>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 36, lineHeight: 1.6, whiteSpace: "pre-line" }}>{t('app.login_reason')}</p>
+          <button onClick={handleLogin} style={{ width: "100%", padding: 14, background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, transition: "transform 0.2s" }}>
             <span style={{ fontSize: 18 }}>G</span>
-            使用 Google 繼續
+            {t('app.login_btn')}
           </button>
         </div>
       </div>
@@ -76,10 +78,20 @@ export default function App() {
   // 確定是合法主人，才放行顯示以下內容
   return (
     <div style={{ position: "relative" }}>
-      {/* 隱藏式的登出按鈕（放在畫面最右上角） */}
-      <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999 }}>
+      {/* 隱藏式的登出與設定按鈕（放在畫面最右上角） */}
+      <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999, display: "flex", gap: 8, alignItems: "center" }}>
+        <select
+          value={lang}
+          onChange={e => setLang(e.target.value)}
+          style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "6px 10px", borderRadius: 20, fontSize: 11, outline: "none", cursor: "pointer", backdropFilter: "blur(4px)" }}>
+          <option value="zh">繁中</option>
+          <option value="en">EN</option>
+        </select>
+        <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "6px 10px", borderRadius: 20, fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)" }}>
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
         <button onClick={handleLogout} style={{ background: "rgba(0,0,0,0.5)", color: "white", border: "none", padding: "6px 14px", borderRadius: 20, fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)" }}>
-          {user.email} (登出)
+          {user.email} ({t('app.logout')})
         </button>
       </div>
 
