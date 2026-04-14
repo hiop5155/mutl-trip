@@ -7,7 +7,16 @@ import ItemModal from "./ItemModal.jsx";
 import ExpenseTracker from "./ExpenseTracker.jsx";
 import { TC, TYPE_CFG } from "../lib/consts.js";
 
-export default function TripPlanner({ tripId, tripMeta, onBack }) {
+const emailToKey = email => email.toLowerCase().replace(/\./g, '_').replace(/@/g, '-');
+
+const computeTravelers = (meta) => {
+  const allowed = Object.values(meta.allowedEmails || {});
+  if (allowed.length === 0) return meta.travelers || ["Traveler"]; // backward compat
+  const profiles = meta.memberProfiles || {};
+  return allowed.map(email => profiles[emailToKey(email)]?.displayName || email);
+};
+
+export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, onBack }) {
   const { t } = useI18n();
   const [days, setDays] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -18,11 +27,13 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
   const [addingTo, setAddingTo] = useState(null);
 
   const [newText, setNewText] = useState("");
+  const [newMapUrl, setNewMapUrl] = useState("");
   const [newStartTime, setNewStartTime] = useState("09:00");
   const [newEndTime, setNewEndTime] = useState("10:00");
   const [newType, setNewType] = useState("activity");
 
-  const [notes, setNotes] = useState("");
+  const [sharedNotes, setSharedNotes] = useState([]);
+  const [sharedNoteText, setSharedNoteText] = useState("");
   const [expenses, setExpenses] = useState([]);
   const [expCats, setExpCats] = useState([]);
   const [flights, setFlights] = useState({ outbound: {}, inbound: {} });
@@ -30,13 +41,21 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
   const [editingDayTitle, setEditingDayTitle] = useState(null);
   const [dayTitleVal, setDayTitleVal] = useState("");
   const [editingTripTitle, setEditingTripTitle] = useState(false);
-  const [tripTitleVal, setTripTitleVal] = useState(tripMeta.name);
+  const [tripTitleVal, setTripTitleVal] = useState(tripMeta.name ?? "");
   const [exchangeRate, setExchangeRate] = useState(null);
+  const [liveTripMeta, setLiveTripMeta] = useState(tripMeta);
 
-  const travelers = tripMeta.travelers || ["Traveler"];
-  const localCur = tripMeta.currency || "KRW";
+  const travelers = computeTravelers(liveTripMeta);
+  const localCur = liveTripMeta.currency || "KRW";
+  const selfTraveler = currentUser?.displayName || currentUser?.email || "Traveler";
 
   const lastSavedState = useRef("");
+
+  // Map uid → current display name (for resolving old stored names)
+  const uidToName = {};
+  Object.values(liveTripMeta.memberProfiles || {}).forEach(p => {
+    if (p.uid) uidToName[p.uid] = p.displayName || p.email;
+  });
 
   useEffect(() => {
     (async () => {
@@ -50,6 +69,50 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
       }
     })();
   }, [localCur]);
+
+  useEffect(() => {
+    if (!db || !currentUser?.email) return;
+    const key = emailToKey(currentUser.email);
+    update(ref(db), {
+      [`trips/${tripId}/memberProfiles/${key}`]: {
+        uid: currentUser.uid,
+        email: currentUser.email.toLowerCase(),
+        displayName: currentUser.displayName || "",
+        photoURL: currentUser.photoURL || "",
+      }
+    }).catch(e => console.error("Failed to write member profile", e));
+    const unsub = onValue(ref(db, `trips/${tripId}`), (snap) => {
+      if (snap.val()) setLiveTripMeta(snap.val());
+    });
+    return () => unsub();
+  }, [tripId, currentUser]);
+
+  // Sync stored name strings when selfTraveler changes (e.g. after display name edit)
+  useEffect(() => {
+    if (!loaded || !currentUser?.uid || !selfTraveler) return;
+    setSharedNotes(prev => {
+      const next = prev.map(n => n.creatorUid === currentUser.uid && n.authorName !== selfTraveler ? { ...n, authorName: selfTraveler } : n);
+      return next.some((n, i) => n !== prev[i]) ? next : prev;
+    });
+    setExpenses(prev => {
+      const next = prev.map(e => e.creatorUid === currentUser.uid && e.payer !== selfTraveler ? { ...e, payer: selfTraveler } : e);
+      return next.some((e, i) => e !== prev[i]) ? next : prev;
+    });
+    setDays(prev => {
+      let changed = false;
+      const next = prev.map(day => ({
+        ...day,
+        items: (day.items || []).map(item => {
+          const notes = (item.notes || []).map(n => {
+            if (n.creatorUid === currentUser.uid && n.author !== selfTraveler) { changed = true; return { ...n, author: selfTraveler }; }
+            return n;
+          });
+          return changed ? { ...item, notes } : item;
+        })
+      }));
+      return changed ? next : prev;
+    });
+  }, [selfTraveler, currentUser?.uid, loaded]);
 
   useEffect(() => {
     if (tripMeta?.name) {
@@ -69,7 +132,7 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
         if (stateStr !== lastSavedState.current) {
           lastSavedState.current = stateStr;
           if (p.days) setDays(p.days);
-          if (p.notes !== undefined) setNotes(p.notes || "");
+          if (p.sharedNotes) setSharedNotes(p.sharedNotes);
           if (p.expenses) setExpenses(p.expenses);
           if (p.expCats) setExpCats(p.expCats);
           if (p.flights) setFlights(p.flights);
@@ -81,22 +144,35 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
     return () => unsub();
   }, [tripId]);
 
-  const persist = useCallback((d, n, ex, ec, f, a) => {
+  const persist = useCallback((d, ex, ec, f, a, sn) => {
     if (!db) return;
-    const currentStateString = JSON.stringify({ days: d, notes: n, expenses: ex, expCats: ec, flights: f, accommodation: a });
+    const currentStateString = JSON.stringify({ days: d, expenses: ex, expCats: ec, flights: f, accommodation: a, sharedNotes: sn });
     if (lastSavedState.current !== currentStateString) {
       lastSavedState.current = currentStateString;
       firebaseSet(ref(db, `tripData/${tripId}`), {
-        days: d || [], notes: n || "", expenses: ex || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
+        days: d || [], sharedNotes: sn || [], expenses: ex || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
       }).catch(e => console.error("同步至雲端失敗", e));
     }
   }, [tripId]);
 
   useEffect(() => {
-    if (loaded && (days.length > 0 || notes || expenses.length > 0)) {
-      persist(days, notes, expenses, expCats, flights, accommodation);
+    if (loaded && (days.length > 0 || expenses.length > 0 || sharedNotes.length > 0)) {
+      persist(days, expenses, expCats, flights, accommodation, sharedNotes);
     }
-  }, [days, notes, expenses, expCats, flights, accommodation, loaded, persist]);
+  }, [days, expenses, expCats, flights, accommodation, sharedNotes, loaded, persist]);
+
+  const addSharedNote = () => {
+    if (!sharedNoteText.trim()) return;
+    const n = {
+      id: Date.now(),
+      text: sharedNoteText.trim(),
+      authorName: selfTraveler,
+      creatorUid: currentUser?.uid || null,
+      time: new Date().toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+    };
+    setSharedNotes(prev => [...prev, n]);
+    setSharedNoteText("");
+  };
 
   const sortItems = items => [...items].sort((a, b) => {
     const toMin = t => { if (!t || t === "—") return 9999; const [h, m] = t.split(":").map(Number); return isNaN(h) ? 9999 : h * 60 + (m || 0); };
@@ -108,9 +184,12 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
 
   const addItem = dayId => {
     if (!newText.trim()) return;
-    const ni = { id: `${dayId}-${Date.now()}`, startTime: newStartTime, endTime: newEndTime, text: newText, type: newType, done: false, notes: [], mapUrl: "" };
+    const rawMap = newMapUrl.trim();
+    const urlMatch = rawMap.match(/https?:\/\/[^\s\n]+/);
+    const mapUrl = urlMatch ? urlMatch[0] : rawMap;
+    const ni = { id: `${dayId}-${Date.now()}`, startTime: newStartTime, endTime: newEndTime, text: newText, type: newType, done: false, notes: [], mapUrl };
     setDays(p => p.map(d => d.id === dayId ? { ...d, items: sortItems([...(d.items || []), ni]) } : d));
-    setNewText(""); setNewStartTime("09:00"); setNewEndTime("10:00"); setNewType("activity"); setAddingTo(null);
+    setNewText(""); setNewMapUrl(""); setNewStartTime("09:00"); setNewEndTime("10:00"); setNewType("activity"); setAddingTo(null);
   };
 
   const moveItem = (dayId, itemId, dir) => setDays(p => p.map(d => {
@@ -238,16 +317,51 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
           </div>
         )}
 
-        {activeTab === "notes" && (
-          <div style={{ animation: "fadeIn 0.3s ease" }}>
-            <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 18, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)", marginBottom: 12 }}>{t("trip.notes_title")}</div>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder={t("trip.notes_placeholder")} style={{ width: "100%", minHeight: 180, border: "1px solid var(--border-main)", borderRadius: 10, padding: 14, fontSize: 13, lineHeight: 1.8, resize: "vertical", outline: "none", color: "var(--text-main)", background: "var(--bg-accent)" }} />
-            </div>
-          </div>
-        )}
+        {activeTab === "notes" && (() => {
+          // Notes tab: private per user — each person sees only their own
+          const myNotes = sharedNotes.filter(n => !n.creatorUid || n.creatorUid === currentUser?.uid);
+          return (
+            <div style={{ animation: "fadeIn 0.3s ease" }}>
+              <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 18, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>{t("trip.notes_title")}</div>
+                  <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "var(--bg-accent)", color: "var(--text-muted)" }}>🔒</span>
+                </div>
 
-        {activeTab === "expense" && <ExpenseTracker expenses={expenses} setExpenses={setExpenses} categories={expCats} setCategories={setExpCats} exchangeRate={exchangeRate} travelers={travelers} localCur={localCur} />}
+                {myNotes.length === 0 && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "16px 0" }}>{t("trip.shared_notes_empty")}</div>
+                )}
+
+                {myNotes.map(n => (
+                  <div key={n.id} style={{ background: "var(--bg-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 10, borderLeft: "3px solid var(--btn-bg)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{n.time}</span>
+                      <button onClick={() => setSharedNotes(prev => prev.filter(x => x.id !== n.id))}
+                        style={{ border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", padding: 0 }}>✕</button>
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--text-main)", lineHeight: 1.6 }}>{n.text}</div>
+                  </div>
+                ))}
+
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <input
+                    value={sharedNoteText}
+                    onChange={e => setSharedNoteText(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addSharedNote()}
+                    placeholder={t("trip.shared_note_placeholder")}
+                    style={{ flex: 1, padding: "10px 12px", border: "1px solid var(--border-main)", borderRadius: 10, fontSize: 14, outline: "none", background: "var(--input-bg)", color: "var(--text-main)" }}
+                  />
+                  <button onClick={addSharedNote}
+                    style={{ padding: "8px 16px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 10, fontSize: 13, cursor: "pointer", fontWeight: 600, flexShrink: 0 }}>
+                    {t("dash.add_btn")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {activeTab === "expense" && <ExpenseTracker expenses={expenses} setExpenses={setExpenses} categories={expCats} setCategories={setExpCats} exchangeRate={exchangeRate} travelers={travelers} localCur={localCur} currentUser={currentUser} selfTraveler={selfTraveler} uidToName={uidToName} />}
 
         {activeTab === "itinerary" && (
           <div>
@@ -305,14 +419,15 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
                         <TimePicker label={t("trip.depart")} value={newStartTime} onChange={setNewStartTime} />
                         <TimePicker label={t("trip.arrive")} value={newEndTime} onChange={setNewEndTime} />
                       </div>
-                      <input value={newText} onChange={e => setNewText(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem(day.id)} placeholder={t("trip.item_placeholder")} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 13, outline: "none", marginBottom: 10 }} autoFocus />
+                      <input value={newText} onChange={e => setNewText(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem(day.id)} placeholder={t("trip.item_placeholder")} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 16, outline: "none", marginBottom: 8, color: "var(--text-main)", background: "var(--input-bg)" }} autoFocus />
+                      <input value={newMapUrl} onChange={e => setNewMapUrl(e.target.value)} placeholder={`📍 ${t("trip.map_title")} (${t("trip.map_optional")})`} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 16, outline: "none", marginBottom: 10, color: "var(--text-main)", background: "var(--input-bg)" }} />
                       <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
                         {Object.entries(TYPE_CFG).map(([k, v]) => (
                           <button key={k} onClick={() => setNewType(k)} style={{ padding: "3px 10px", borderRadius: 10, border: newType === k ? "2px solid var(--btn-bg)" : "1px solid var(--border-main)", background: newType === k ? v.bg : "var(--bg-card)", fontSize: 10, cursor: "pointer", color: "var(--text-main)" }}>{v.emoji} {v.label}</button>
                         ))}
                         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                           <button onClick={() => addItem(day.id)} style={{ padding: "5px 14px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("dash.add_btn")}</button>
-                          <button onClick={() => { setAddingTo(null); setNewText(""); }} style={{ padding: "5px 12px", background: "var(--btn-hover)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>{t("dash.cancel")}</button>
+                          <button onClick={() => { setAddingTo(null); setNewText(""); setNewMapUrl(""); }} style={{ padding: "5px 12px", background: "var(--btn-hover)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>{t("dash.cancel")}</button>
                         </div>
                       </div>
                     </div>
@@ -326,7 +441,7 @@ export default function TripPlanner({ tripId, tripMeta, onBack }) {
         )}
       </div>
 
-      {modalItem && <ItemModal item={modalItem} dayColor={modalDayColor} travelers={travelers} onClose={() => setModalItem(null)} onUpdate={updateModalItem} />}
+      {modalItem && <ItemModal item={modalItem} dayColor={modalDayColor} travelers={travelers} currentUser={currentUser} selfTraveler={selfTraveler} uidToName={uidToName} onClose={() => setModalItem(null)} onUpdate={updateModalItem} />}
     </div>
   );
 }

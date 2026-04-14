@@ -4,12 +4,13 @@ import { CURRENCIES, TC } from '../lib/consts.js';
 
 export default function ExpenseTracker(props) {
   const { t } = useI18n();
-  const { expenses, setExpenses, categories, setCategories, exchangeRate, travelers, localCur = "KRW" } = props;
+  const { expenses, setExpenses, categories, setCategories, exchangeRate, travelers, localCur = "KRW", currentUser, selfTraveler, uidToName = {} } = props;
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(localCur);
   const [cat, setCat] = useState(categories[0] || "其他");
-  const [payer, setPayer] = useState(travelers[0] || "Traveler");
+  // Payer is always the current user
+  const payer = selfTraveler || travelers[0] || "Traveler";
   const [split, setSplit] = useState("equal");
   const [newCat, setNewCat] = useState("");
   const [showAddCat, setShowAddCat] = useState(false);
@@ -24,7 +25,7 @@ export default function ExpenseTracker(props) {
       alert("金額必須是有效的正數字哦！");
       return;
     }
-    setExpenses(prev => [...prev, { id: Date.now(), desc, amount: amt, currency, category: cat, payer, split, time: new Date().toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) }]);
+    setExpenses(prev => [...prev, { id: Date.now(), desc, amount: amt, currency, category: cat, payer, split, time: new Date().toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }), creatorUid: currentUser?.uid || null }]);
     setDesc(""); setAmount("");
   };
 
@@ -62,31 +63,45 @@ export default function ExpenseTracker(props) {
     return Math.round(localAmt / exchangeRate);
   };
 
+  // Resolve current display name for an expense's payer (handles name changes)
+  const resolvePayer = (e) => (e.creatorUid && uidToName[e.creatorUid]) || e.payer;
+
   const totalLocal = expenses.reduce((s, e) => s + toLocal(e.amount, e.currency || localCur), 0);
   const totalLocalSymbol = CURRENCIES[localCur]?.symbol || localCur;
 
   const paidBy = {}; const owes = {};
   travelers.forEach(t => { paidBy[t] = 0; owes[t] = 0; });
   expenses.forEach(e => {
+    const resolvedPayer = resolvePayer(e);
     const lAmt = toLocal(e.amount, e.currency || localCur);
-    paidBy[e.payer] = (paidBy[e.payer] || 0) + lAmt;
+    paidBy[resolvedPayer] = (paidBy[resolvedPayer] || 0) + lAmt;
     if (e.split === "equal") {
       const share = lAmt / travelers.length;
       travelers.forEach(t => { owes[t] += share; });
     } else {
-      owes[e.payer] += lAmt;
+      owes[resolvedPayer] = (owes[resolvedPayer] || 0) + lAmt;
     }
   });
   const net = {}; travelers.forEach(t => { net[t] = paidBy[t] - owes[t]; });
 
-  let settlement = null;
-  if (travelers.length === 2) {
-    const [a, b] = travelers;
-    const diff = net[a];
-    if (Math.abs(diff) > 0.5) {
-      settlement = diff > 0 ? { from: b, to: a, amount: Math.round(diff) } : { from: a, to: b, amount: Math.round(-diff) };
+  // Greedy minimum-transactions settlement for any number of people
+  const computeSettlements = () => {
+    const eps = 0.5;
+    const credits = travelers.map(t => ({ name: t, val: Math.round(net[t]) })).filter(x => x.val > eps).sort((a, b) => b.val - a.val);
+    const debts   = travelers.map(t => ({ name: t, val: Math.round(net[t]) })).filter(x => x.val < -eps).sort((a, b) => a.val - b.val);
+    const result = [];
+    let ci = 0, di = 0;
+    while (ci < credits.length && di < debts.length) {
+      const amount = Math.min(credits[ci].val, -debts[di].val);
+      if (amount > eps) result.push({ from: debts[di].name, to: credits[ci].name, amount: Math.round(amount) });
+      credits[ci].val -= amount;
+      debts[di].val  += amount;
+      if (credits[ci].val < eps) ci++;
+      if (-debts[di].val  < eps) di++;
     }
-  }
+    return result;
+  };
+  const settlements = expenses.length > 0 ? computeSettlements() : [];
 
   const byCat = {};
   expenses.forEach(e => { const k = toLocal(e.amount, e.currency || localCur); byCat[e.category] = (byCat[e.category] || 0) + k; });
@@ -103,7 +118,7 @@ export default function ExpenseTracker(props) {
         <input value={desc} onChange={e => setDesc(e.target.value)} placeholder={t("exp.desc_placeholder")} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 10, fontSize: 13, outline: "none", marginBottom: 8 }} />
         <div style={{ display: "flex", gap: 0, marginBottom: 10, border: "1px solid var(--border-main)", borderRadius: 10, overflow: "hidden" }}>
           {Object.entries(activeCurrencies).map(([k, v]) => (
-            <button key={k} onClick={() => setCurrency(k)} style={{ padding: "10px 14px", border: "none", borderRight: "1px solid var(--border-main)", background: currency === k ? "#2D2926" : "white", color: currency === k ? "white" : "#999", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>{v.symbol}</button>
+            <button key={k} onClick={() => setCurrency(k)} style={{ padding: "10px 14px", border: "none", borderRight: "1px solid var(--border-main)", background: currency === k ? "var(--btn-bg)" : "var(--input-bg)", color: currency === k ? "var(--btn-text)" : "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>{v.symbol}</button>
           ))}
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => e.key === "Enter" && addExpense()} placeholder={t("exp.amount")} inputMode="decimal"
             style={{ flex: 1, padding: "10px 12px", border: "none", fontSize: 15, fontWeight: 600, outline: "none", minWidth: 0 }} />
@@ -116,7 +131,7 @@ export default function ExpenseTracker(props) {
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
             {categories.map(c => (
               <div key={c} style={{ position: "relative", display: "inline-flex" }}>
-                <button onClick={() => setCat(c)} style={{ padding: "4px 12px", paddingRight: cat === c ? 24 : 12, borderRadius: 16, border: cat === c ? "2px solid #2D2926" : "1px solid #ddd", background: cat === c ? "#2D2926" : "white", color: cat === c ? "white" : "#666", fontSize: 11, cursor: "pointer", fontWeight: cat === c ? 600 : 400 }}>{t(c)}</button>
+                <button onClick={() => setCat(c)} style={{ padding: "4px 12px", paddingRight: cat === c ? 24 : 12, borderRadius: 16, border: cat === c ? "2px solid var(--btn-bg)" : "1px solid var(--border-main)", background: cat === c ? "var(--btn-bg)" : "var(--bg-card)", color: cat === c ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: cat === c ? 600 : 400 }}>{t(c)}</button>
                 {cat === c && (
                    <span onClick={(e) => { e.stopPropagation(); deleteCategory(c); }} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 10, cursor: "pointer", opacity: 0.8 }}>✕</span>
                 )}
@@ -137,16 +152,14 @@ export default function ExpenseTracker(props) {
           <div>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>{t("exp.payer")}</div>
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              {travelers.map(tr => (
-                <button key={tr} onClick={() => setPayer(tr)} style={{ padding: "5px 14px", borderRadius: 20, border: payer === tr ? "none" : "1px solid #ddd", background: payer === tr ? (TC[tr] || "#2D2926") : "transparent", color: payer === tr ? "white" : "#888", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tr}</button>
-              ))}
+              <span style={{ padding: "5px 14px", borderRadius: 20, background: TC[payer] || "var(--btn-bg)", color: "var(--btn-text)", fontSize: 12, fontWeight: 600 }}>{payer}</span>
             </div>
           </div>
           <div>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>{t("exp.split")}</div>
             <div style={{ display: "flex", gap: 5 }}>
-              <button onClick={() => setSplit("equal")} style={{ padding: "5px 12px", borderRadius: 20, border: split === "equal" ? "2px solid #2D2926" : "1px solid #ddd", background: split === "equal" ? "#2D2926" : "transparent", color: split === "equal" ? "white" : "#888", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("exp.split_eq")}</button>
-              <button onClick={() => setSplit("solo")} style={{ padding: "5px 12px", borderRadius: 20, border: split === "solo" ? "2px solid #2D2926" : "1px solid #ddd", background: split === "solo" ? "#2D2926" : "transparent", color: split === "solo" ? "white" : "#888", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("exp.split_solo")}</button>
+              <button onClick={() => setSplit("equal")} style={{ padding: "5px 12px", borderRadius: 20, border: split === "equal" ? "2px solid var(--btn-bg)" : "1px solid var(--border-main)", background: split === "equal" ? "var(--btn-bg)" : "transparent", color: split === "equal" ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("exp.split_eq")}</button>
+              <button onClick={() => setSplit("solo")} style={{ padding: "5px 12px", borderRadius: 20, border: split === "solo" ? "2px solid var(--btn-bg)" : "1px solid var(--border-main)", background: split === "solo" ? "var(--btn-bg)" : "transparent", color: split === "solo" ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("exp.split_solo")}</button>
             </div>
           </div>
         </div>
@@ -173,17 +186,26 @@ export default function ExpenseTracker(props) {
               </div>
             ))}
           </div>
-          {settlement && (
-            <div style={{ background: "linear-gradient(135deg,#FFF9F0,#FFF3E0)", borderRadius: 12, padding: 14, textAlign: "center", marginBottom: 14, border: "1px solid #F5E6D0" }}>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>{t("exp.settle")}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-main)" }}>
-                <span style={{ color: TC[settlement.from] }}>{settlement.from}</span>{" → "}<span style={{ color: TC[settlement.to] }}>{settlement.to}</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#E8A87C", marginTop: 4 }}>{totalLocalSymbol} {settlement.amount.toLocaleString()}</div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>≈ NT$ {toTWD(settlement.amount).toLocaleString()}</div>
+          {settlements.length > 0 ? (
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border-main)", marginBottom: 14 }}>
+              <div style={{ background: "var(--bg-accent)", padding: "10px 14px", fontSize: 11, fontWeight: 600, color: "var(--text-muted)" }}>{t("exp.settle")}</div>
+              {settlements.map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", borderTop: "1px solid var(--border-light)", background: "var(--bg-card)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>{s.from}</span>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>→</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>{s.to}</span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-main)" }}>{totalLocalSymbol} {s.amount.toLocaleString()}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>≈ NT$ {toTWD(s.amount).toLocaleString()}</div>
+                  </div>
+                </div>
+              ))}
             </div>
+          ) : (
+            expenses.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "var(--text-muted)", background: "var(--bg-accent)", borderRadius: 12, marginBottom: 14 }}>{t("exp.balanced")}</div>
           )}
-          {!settlement && travelers.length === 2 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "var(--text-muted)", background: "var(--bg-accent)", borderRadius: 12 }}>{t("exp.balanced")}</div>}
           {Object.keys(byCat).length > 0 && (
             <div style={{ marginTop: 4 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 8 }}>{t("exp.cat_stats")}</div>
@@ -209,16 +231,18 @@ export default function ExpenseTracker(props) {
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)", marginBottom: 10 }}>📋 支出明細</div>
           {expenses.slice().reverse().map(e => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border-light)" }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: TC[e.payer] || "#999", flexShrink: 0 }} />
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: TC[resolvePayer(e)] || "#999", flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{e.desc}</span>
                   <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "var(--bg-accent)", color: "var(--text-muted)" }}>{t(e.category)}</span>
                 </div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{e.payer} 付 · {e.split === "equal" ? "平分" : "自己出"} · {e.time}</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{resolvePayer(e)} 付 · {e.split === "equal" ? "平分" : "自己出"} · {e.time}</div>
               </div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", flexShrink: 0 }}>{CURRENCIES[e.currency || localCur]?.symbol || e.currency} {e.amount.toLocaleString()}</div>
-              <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ border: "none", background: "transparent", color: "#ccc", fontSize: 14, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
+              {(!e.creatorUid || e.creatorUid === currentUser?.uid) && (
+                <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ border: "none", background: "transparent", color: "#ccc", fontSize: 14, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
+              )}
             </div>
           ))}
         </div>
