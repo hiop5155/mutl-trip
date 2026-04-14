@@ -1,35 +1,63 @@
 # ✈️ 旅行手帳系統 (Multi-Trip Planner)
 
-這是一個基於 **React + Vite** 開發的私人多人旅行管理系統。結合 Firebase Realtime Database 實現跨裝置即時同步，並透過 Gmail 白名單 + 行程分享機制管控存取權限。
+基於 **React + Vite** 開發的私人多人旅行管理系統。Firebase Realtime Database 實現跨裝置即時同步，Gmail 白名單 + 行程分享機制管控存取權限。
 
-## 🌟 主要功能
+## 功能
 
-- 🔐 **雙層存取控制**：管理員帳號（`ADMIN_EMAILS`）可建立行程；每個行程可透過 Gmail 邀請其他使用者存取，無需為管理員。
-- 🔗 **行程分享連結**：Share 按鈕產生帶有 `#tripId` 的 URL，對方開啟連結後自動跳轉至該行程。
-- 👤 **Gmail 身份識別**：使用者以 Gmail 登入後，系統自動抓取 Google 帳號顯示名稱；支援在 App 頂欄直接編輯自訂暱稱（儲存於 Firebase）。名字變更後，過去的記帳與備忘錄記錄會自動同步更新。
-- 🌍 **多行程 Dashboard**：管理所有進行中或過去的旅行計畫，支援即時共編。
-- 🗓️ **每日行程規劃**：自動依出發/回程日期生成天數，每天可新增地點、時間、地圖連結、類型標籤。點開項目可加入所有人可見的共享備忘錄（只有本人可刪除）。
-- ✈️ **資訊面板**：航班卡片與住宿卡片，方便出發/抵達時快速查閱。
-- 💰 **多幣別記帳**：即時匯率（exchangerate-api.com），支援平分 / 自己出，多人結算使用貪婪最小轉帳演算法，記帳顯示名稱隨暱稱即時更新。
-- 📝 **雙層備忘錄**：行程項目內的備忘錄所有人可見（只有本人可刪除）；備忘 Tab 下的為私人備忘（只有自己看得到）。
-- 🌓 **深/淺色模式** + 繁中/英文切換，偏好儲存於 `localStorage`。
+### Dashboard
+- 建立、編輯、刪除、複製行程
+- 行程複製保留成員清單，立即開啟編輯彈窗
+- 目的地城市選擇（~140 城市，含繁體中文名稱 + 座標），幣值依目的地國家自動帶入
+- 行程卡片顯示狀態 badge：「還有 X 天」/ 「進行中・第 X 天」/ 「已結束」
+- Share 按鈕產生帶 `#tripId` 的分享連結，對方開啟自動跳轉
 
-## 🚀 技術棧
+### 行程規劃
+- 依出發/回程日期自動生成每日行程，每日有獨立顏色、標題（可編輯）
+- 行程項目：地點名稱、時間、地圖連結（📍 直連）、類型標籤（美食/景點/購物/交通）
+- 清單/時間軸 兩種視圖切換，時間軸依 startTime 排序並顯示連接線
+- 拖拉（⠿）或 ▲▼ 按鈕調整同日項目順序
+- 每日 header 顯示進度條 + 完成數，全完成轉綠色
+- 天氣預報（Open-Meteo API）：過去行程用 archive API，近期用 forecast API，超過 16 天後不顯示
+
+### 資訊面板
+- 去程/回程航班卡片
+- 住宿資訊卡片
+
+### 記帳
+- 多幣別支援（39 種幣別），即時匯率（exchangerate-api.com）
+- 類別圓餅圖（純 SVG）
+- 多人費用結算，貪婪最小轉帳演算法
+
+### 其他
+- 🧳 個人行李清單（私有，預設帶入護照/eSIM）
+- 📝 私人備忘錄（只看自己的）
+- 👥 成員列表（email ↔ 顯示名稱對應）
+- 在線狀態：顯示目前同時瀏覽行程的其他成員（Firebase onDisconnect）
+- 深/淺色模式 + 繁中/英文切換，偏好儲存於 `localStorage`
+
+### 身份系統
+- Google OAuth 登入，支援在 App 內自訂暱稱（覆蓋 Google 顯示名稱）
+- `ADMIN_EMAILS` 陣列控制誰能建立行程
+- 名字變更後，記帳與備忘錄的歷史記錄自動同步更新
+
+## 技術棧
 
 - **Frontend**: React 18 + Vite 5
 - **Database**: Firebase Realtime Database
 - **Auth**: Firebase Authentication (Google OAuth)
 - **Hosting**: Firebase Hosting
 
-## 🛠️ 環境設定與啟動
+## 開發
 
-### 1. 安裝套件
 ```bash
 npm install
+npm run dev      # localhost:5173
+npm run build
+firebase deploy
 ```
 
-### 2. 環境變數設定
-在專案根目錄建立 `.env`（已加入 `.gitignore`）：
+### 環境變數（`.env`，已加入 `.gitignore`）
+
 ```env
 VITE_FIREBASE_API_KEY=""
 VITE_FIREBASE_AUTH_DOMAIN=""
@@ -40,13 +68,13 @@ VITE_FIREBASE_SENDER_ID=""
 VITE_FIREBASE_APP_ID=""
 ```
 
-### 3. 本地開發
-```bash
-npm run dev
-```
+### Firebase Database Rules
 
-### 4. 部署
-```bash
-npm run build
-firebase deploy
+```json
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null"
+  }
+}
 ```
