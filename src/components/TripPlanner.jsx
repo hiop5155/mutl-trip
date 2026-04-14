@@ -21,7 +21,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
   const [days, setDays] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState("packing");
-  const [timelineMode, setTimelineMode] = useState(false);
+  const [itinMode, setItinMode] = useState("list"); // "list" | "timeline" | "map"
   const [onlineMembers, setOnlineMembers] = useState({});
   const [modalItem, setModalItem] = useState(null);
   const [modalDayId, setModalDayId] = useState(null);
@@ -300,7 +300,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
   if (!loaded) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>載入中...</div>;
 
-  const TABS = [{ key: "packing", label: t("trip.packing_tab") }, { key: "itinerary", label: t("trip.plan_tab") }, { key: "map", label: t("trip.map_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
+  const TABS = [{ key: "packing", label: t("trip.packing_tab") }, { key: "itinerary", label: t("trip.plan_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
   const WMO_EMOJI = { 0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌦️", 55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "🌧️", 71: "❄️", 73: "❄️", 75: "❄️", 80: "🌦️", 81: "🌦️", 82: "⛈️", 95: "⛈️", 96: "⛈️", 99: "⛈️" };
   const getWeatherEmoji = (code) => { if (code == null) return null; const keys = Object.keys(WMO_EMOJI).map(Number).sort((a, b) => b - a); const k = keys.find(k => code >= k); return WMO_EMOJI[k] || "🌡️"; };
 
@@ -455,9 +455,11 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
         {activeTab === "itinerary" && (
           <div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-              <button onClick={() => setTimelineMode(m => !m)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid var(--border-main)", background: timelineMode ? "var(--btn-bg)" : "var(--bg-card)", color: timelineMode ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
-                {timelineMode ? t("trip.list_mode") : t("trip.timeline_mode")}
-              </button>
+              <div style={{ display: "flex", gap: 2, background: "var(--bg-card)", borderRadius: 9, padding: 2, border: "1px solid var(--border-main)" }}>
+                {[["list", t("trip.list_mode")], ["timeline", t("trip.timeline_mode")], ["map", t("trip.map_tab")]].map(([mode, label]) => (
+                  <button key={mode} onClick={() => setItinMode(mode)} style={{ padding: "4px 11px", borderRadius: 7, border: "none", background: itinMode === mode ? "var(--btn-bg)" : "transparent", color: itinMode === mode ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{label}</button>
+                ))}
+              </div>
             </div>
             {days.map((day, dayIdx) => (
               <div key={day.id} style={{ marginBottom: 22, animation: `fadeIn 0.3s ease ${dayIdx * 0.05}s both` }}>
@@ -499,7 +501,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{(day.items || []).filter(i => i.done).length}/{(day.items || []).length}</div>
                 </div>
 
-                {timelineMode ? (() => {
+                {itinMode === "timeline" ? (() => {
                   const withTime = (day.items || []).filter(i => i.startTime).sort((a, b) => a.startTime.localeCompare(b.startTime));
                   const noTime = (day.items || []).filter(i => !i.startTime);
                   const renderTimelineItem = (item, isLast) => {
@@ -561,6 +563,39 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                       )}
                     </div>
                   );
+                })() : itinMode === "map" ? (() => {
+                  const mapItems = (day.items || []).filter(i => i.mapUrl);
+                  const routeUrl = mapItems.length > 1
+                    ? `https://www.google.com/maps/dir/${mapItems.map(i => encodeURIComponent(i.text)).join('/')}`
+                    : null;
+                  return mapItems.length === 0 ? (
+                    <div style={{ background: "var(--bg-card)", borderRadius: 12, padding: "14px 16px", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>{t("trip.map_no_locations")}</div>
+                  ) : (
+                    <div style={{ background: "var(--bg-card)", borderRadius: 12, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                      {mapItems.map((item, idx) => {
+                        const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
+                        return (
+                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: idx < mapItems.length - 1 ? "1px solid var(--border-light)" : "none" }}>
+                            <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, color: "var(--text-main)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
+                              {item.startTime && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.startTime}{item.endTime ? `–${item.endTime}` : ""}</div>}
+                            </div>
+                            <a href={item.mapUrl} target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "#E3F2FD", color: "#4A90D9", textDecoration: "none", fontWeight: 600, flexShrink: 0 }}>
+                              📍 {t("trip.map_open")}
+                            </a>
+                          </div>
+                        );
+                      })}
+                      {routeUrl && (
+                        <a href={routeUrl} target="_blank" rel="noopener noreferrer"
+                          style={{ display: "block", textAlign: "center", padding: "10px", fontSize: 12, color: "#4A90D9", textDecoration: "none", borderTop: "1px solid var(--border-light)", fontWeight: 600 }}>
+                          🗺️ {t("trip.map_route_btn")}
+                        </a>
+                      )}
+                    </div>
+                  );
                 })() : (
                 <div style={{ background: "var(--bg-card)", borderRadius: 14, overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}>
                   {(day.items || []).map((item, idx) => {
@@ -613,58 +648,6 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                 )}
               </div>
             ))}
-          </div>
-        )}
-
-        {activeTab === "map" && (
-          <div style={{ animation: "fadeIn 0.3s ease" }}>
-            {days.map((day, dayIdx) => {
-              const mapItems = (day.items || []).filter(i => i.mapUrl);
-              const routeUrl = mapItems.length > 1
-                ? `https://www.google.com/maps/dir/${mapItems.map(i => encodeURIComponent(i.text)).join('/')}`
-                : null;
-              return (
-                <div key={day.id} style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 26, height: 26, borderRadius: 8, background: day.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "var(--text-main)" }}>{dayIdx + 1}</div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{day.title}</div>
-                        <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{day.date}</div>
-                      </div>
-                    </div>
-                    {routeUrl && (
-                      <a href={routeUrl} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "#E3F2FD", color: "#4A90D9", textDecoration: "none", fontWeight: 600 }}>
-                        🗺️ {t("trip.map_route_btn")}
-                      </a>
-                    )}
-                  </div>
-                  {mapItems.length === 0 ? (
-                    <div style={{ background: "var(--bg-card)", borderRadius: 12, padding: "14px 16px", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>{t("trip.map_no_locations")}</div>
-                  ) : (
-                    <div style={{ background: "var(--bg-card)", borderRadius: 12, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                      {mapItems.map((item, idx) => {
-                        const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
-                        return (
-                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: idx < mapItems.length - 1 ? "1px solid var(--border-light)" : "none" }}>
-                            <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, color: "var(--text-main)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
-                              {item.startTime && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.startTime}{item.endTime ? `–${item.endTime}` : ""}</div>}
-                            </div>
-                            <a href={item.mapUrl} target="_blank" rel="noopener noreferrer"
-                              style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "#E3F2FD", color: "#4A90D9", textDecoration: "none", fontWeight: 600, flexShrink: 0 }}>
-                              📍 {t("trip.map_open")}
-                            </a>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
         )}
 
