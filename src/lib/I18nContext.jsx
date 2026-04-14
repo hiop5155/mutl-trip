@@ -138,7 +138,11 @@ export function I18nProvider({ children }) {
       "app.edit_name": "編輯暱稱",
       "app.name_placeholder": "輸入顯示名稱",
       "dash.copy_link": "複製連結",
-      "dash.link_copied": "連結已複製！"
+      "dash.link_copied": "連結已複製！",
+      "trip.members_tab": "👥 成員",
+      "trip.members_title": "成員對應表",
+      "trip.member_not_joined": "尚未加入",
+      "trip.member_legacy": "此行程使用舊版格式，無成員資料"
     },
     en: {
       "app.title": "Trip Planner",
@@ -257,7 +261,11 @@ export function I18nProvider({ children }) {
       "app.edit_name": "Edit Name",
       "app.name_placeholder": "Display name",
       "dash.copy_link": "Copy Link",
-      "dash.link_copied": "Link Copied!"
+      "dash.link_copied": "Link Copied!",
+      "trip.members_tab": "👥 Members",
+      "trip.members_title": "Member List",
+      "trip.member_not_joined": "Not joined yet",
+      "trip.member_legacy": "This trip uses the legacy format, no member data available"
     }
   };
 

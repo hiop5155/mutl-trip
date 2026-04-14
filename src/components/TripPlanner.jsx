@@ -228,7 +228,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
   if (!loaded) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>載入中...</div>;
 
-  const TABS = [{ key: "itinerary", label: t("trip.plan_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }];
+  const TABS = [{ key: "itinerary", label: t("trip.plan_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-main)", fontFamily: "'Noto Sans TC','Noto Sans KR',sans-serif", paddingBottom: 80 }}>
@@ -439,6 +439,56 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
             ))}
           </div>
         )}
+
+        {activeTab === "members" && (() => {
+          const allowedEmails = Object.values(liveTripMeta.allowedEmails || {});
+          const profiles = liveTripMeta.memberProfiles || {};
+          if (allowedEmails.length === 0) {
+            return (
+              <div style={{ animation: "fadeIn 0.3s ease" }}>
+                <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                  {t("trip.member_legacy")}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div style={{ animation: "fadeIn 0.3s ease" }}>
+              <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 18, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)", marginBottom: 16 }}>{t("trip.members_title")}</div>
+                {allowedEmails.map((email, idx) => {
+                  const key = emailToKey(email);
+                  const profile = profiles[key];
+                  const hasJoined = !!profile?.uid;
+                  const isCreator = email.toLowerCase() === liveTripMeta.creatorEmail?.toLowerCase();
+                  const isMe = email.toLowerCase() === currentUser?.email?.toLowerCase();
+                  const displayName = profile?.displayName || (hasJoined ? email.split('@')[0] : null);
+                  return (
+                    <div key={email} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: idx < allowedEmails.length - 1 ? "1px solid var(--border-light)" : "none" }}>
+                      {profile?.photoURL
+                        ? <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                        : <div style={{ width: 38, height: 38, borderRadius: "50%", background: hasJoined ? "var(--btn-bg)" : "var(--border-main)", color: "var(--btn-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
+                            {(displayName || email)[0].toUpperCase()}
+                          </div>
+                      }
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: hasJoined ? "var(--text-main)" : "var(--text-muted)" }}>
+                            {displayName || email}
+                          </span>
+                          {isCreator && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#FFF3E0", color: "#E65100", fontWeight: 700 }}>{t("dash.share_creator")}</span>}
+                          {isMe && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--bg-accent)", color: "var(--text-muted)", fontWeight: 600 }}>{t("dash.share_you")}</span>}
+                          {!hasJoined && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--border-light)", color: "var(--text-muted)" }}>{t("trip.member_not_joined")}</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{email}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {modalItem && <ItemModal item={modalItem} dayColor={modalDayColor} travelers={travelers} currentUser={currentUser} selfTraveler={selfTraveler} uidToName={uidToName} onClose={() => setModalItem(null)} onUpdate={updateModalItem} />}
