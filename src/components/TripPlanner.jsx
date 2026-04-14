@@ -94,16 +94,26 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
           if (!loc) return;
           latitude = loc.latitude; longitude = loc.longitude;
         }
-        // Forecast API only covers today → today+16 days; skip if trip is outside that window
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const maxForecast = new Date(today); maxForecast.setDate(today.getDate() + 16);
         const tripStart = new Date(liveTripMeta.dateStart);
         const tripEnd = new Date(liveTripMeta.dateEnd);
-        if (tripEnd < today || tripStart > maxForecast) return;
         const fmt = d => d.toISOString().split('T')[0];
-        const start = fmt(tripStart < today ? today : tripStart);
-        const end = fmt(tripEnd > maxForecast ? maxForecast : tripEnd);
-        const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${start}&end_date=${end}`);
+        // More than 16 days in the future → no data available yet
+        if (tripStart > maxForecast) return;
+        let apiBase, start, end;
+        if (tripEnd < today) {
+          // Entirely in the past → use archive API
+          apiBase = 'https://archive-api.open-meteo.com/v1/archive';
+          start = liveTripMeta.dateStart;
+          end = liveTripMeta.dateEnd;
+        } else {
+          // Overlaps with forecast window → use forecast API, clip far-future end
+          apiBase = 'https://api.open-meteo.com/v1/forecast';
+          start = liveTripMeta.dateStart;
+          end = fmt(tripEnd > maxForecast ? maxForecast : tripEnd);
+        }
+        const wRes = await fetch(`${apiBase}?latitude=${latitude}&longitude=${longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${start}&end_date=${end}`);
         const wData = await wRes.json();
         if (!wData.daily) return;
         const map = {};
