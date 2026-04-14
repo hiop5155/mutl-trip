@@ -1,6 +1,41 @@
 import React, { useState } from 'react';
 import { useI18n } from '../lib/I18nContext.jsx';
-import { CURRENCIES, TC } from '../lib/consts.js';
+import { CURRENCIES, TC, getCatColor } from '../lib/consts.js';
+
+function DonutChart({ data, total, symbol }) {
+  const circumference = 2 * Math.PI * 42;
+  let offset = 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+      <svg width={100} height={100} viewBox="0 0 100 100" style={{ flexShrink: 0 }}>
+        <circle cx={50} cy={50} r={42} fill="none" stroke="var(--bg-accent)" strokeWidth={16} />
+        {data.map((d, i) => {
+          const pct = total > 0 ? d.value / total : 0;
+          const dash = pct * circumference;
+          const off = -offset * circumference;
+          offset += pct;
+          return (
+            <circle key={i} cx={50} cy={50} r={42} fill="none"
+              stroke={d.color} strokeWidth={16}
+              strokeDasharray={`${dash} ${circumference}`}
+              strokeDashoffset={off}
+              style={{ transform: "rotate(-90deg)", transformOrigin: "center" }} />
+          );
+        })}
+        <text x={50} y={54} textAnchor="middle" fontSize={10} fill="var(--text-main)" fontWeight={700}>{symbol}</text>
+      </svg>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-main)", flexShrink: 0 }}>{Math.round(d.value / total * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function ExpenseTracker(props) {
   const { t } = useI18n();
@@ -208,16 +243,19 @@ export default function ExpenseTracker(props) {
           )}
           {Object.keys(byCat).length > 0 && (
             <div style={{ marginTop: 4 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 8 }}>{t("exp.cat_stats")}</div>
-              {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => (
-                <div key={c} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border-light)" }}>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t(c)}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 60, height: 4, borderRadius: 2, background: "#EDE8E0", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${(v / totalLocal) * 100}%`, background: "#C4A882", borderRadius: 2 }} />
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", minWidth: 80, textAlign: "right" }}>{totalLocalSymbol} {Math.round(v).toLocaleString()}</span>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 10 }}>{t("exp.cat_stats")}</div>
+              <DonutChart
+                total={totalLocal}
+                symbol={totalLocalSymbol}
+                data={Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v], i) => ({ label: t(c), value: v, color: getCatColor(c, i) }))}
+              />
+              {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v], i) => (
+                <div key={c} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--border-light)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: getCatColor(c, i), flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t(c)}</span>
                   </div>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{totalLocalSymbol} {Math.round(v).toLocaleString()}</span>
                 </div>
               ))}
             </div>

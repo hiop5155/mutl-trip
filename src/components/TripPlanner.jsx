@@ -20,7 +20,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
   const { t } = useI18n();
   const [days, setDays] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState("itinerary");
+  const [activeTab, setActiveTab] = useState("packing");
   const [modalItem, setModalItem] = useState(null);
   const [modalDayId, setModalDayId] = useState(null);
   const [modalDayColor, setModalDayColor] = useState("#ccc");
@@ -34,6 +34,9 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
   const [sharedNotes, setSharedNotes] = useState([]);
   const [sharedNoteText, setSharedNoteText] = useState("");
+  const [packingList, setPackingList] = useState([]);
+  const [packingText, setPackingText] = useState("");
+  const [weatherByDate, setWeatherByDate] = useState({});
   const [expenses, setExpenses] = useState([]);
   const [expCats, setExpCats] = useState([]);
   const [flights, setFlights] = useState({ outbound: {}, inbound: {} });
@@ -71,6 +74,41 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
   }, [localCur]);
 
   useEffect(() => {
+    const rawDest = liveTripMeta.destination;
+    if (!rawDest) return;
+    (async () => {
+      try {
+        let latitude, longitude;
+        if (rawDest.latitude && rawDest.longitude) {
+          // New format: lat/lng stored directly
+          latitude = rawDest.latitude; longitude = rawDest.longitude;
+        } else {
+          // Legacy: geocode by name string
+          const name = typeof rawDest === "object" ? (rawDest.en || rawDest.name) : rawDest;
+          if (!name) return;
+          const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1`);
+          const geoData = await geoRes.json();
+          const loc = geoData.results?.[0];
+          if (!loc) return;
+          latitude = loc.latitude; longitude = loc.longitude;
+        }
+        const start = liveTripMeta.dateStart;
+        const end = liveTripMeta.dateEnd;
+        const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${start}&end_date=${end}`);
+        const wData = await wRes.json();
+        if (!wData.daily) return;
+        const map = {};
+        wData.daily.time.forEach((date, i) => {
+          map[date] = { code: wData.daily.weathercode[i], max: Math.round(wData.daily.temperature_2m_max[i]), min: Math.round(wData.daily.temperature_2m_min[i]) };
+        });
+        setWeatherByDate(map);
+      } catch (e) {
+        // silent
+      }
+    })();
+  }, [liveTripMeta.destination, liveTripMeta.dateStart, liveTripMeta.dateEnd]);
+
+  useEffect(() => {
     if (!db || !currentUser?.email) return;
     const key = emailToKey(currentUser.email);
     update(ref(db), {
@@ -86,6 +124,22 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
     });
     return () => unsub();
   }, [tripId, currentUser]);
+
+  // Add default packing items for new users (runs once after load)
+  const packingInitialized = useRef(false);
+  useEffect(() => {
+    if (!loaded || packingInitialized.current || !currentUser?.uid) return;
+    packingInitialized.current = true;
+    const myItems = packingList.filter(p => p.creatorUid === currentUser.uid);
+    if (myItems.length === 0) {
+      const now = Date.now();
+      setPackingList(prev => [
+        ...prev,
+        { id: now, text: "護照", done: false, creatorUid: currentUser.uid },
+        { id: now + 1, text: "eSIM", done: false, creatorUid: currentUser.uid },
+      ]);
+    }
+  }, [loaded, currentUser?.uid]);
 
   // Sync stored name strings when selfTraveler changes (e.g. after display name edit)
   useEffect(() => {
@@ -133,6 +187,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
           lastSavedState.current = stateStr;
           if (p.days) setDays(p.days);
           if (p.sharedNotes) setSharedNotes(p.sharedNotes);
+          if (p.packingList) setPackingList(p.packingList);
           if (p.expenses) setExpenses(p.expenses);
           if (p.expCats) setExpCats(p.expCats);
           if (p.flights) setFlights(p.flights);
@@ -144,22 +199,22 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
     return () => unsub();
   }, [tripId]);
 
-  const persist = useCallback((d, ex, ec, f, a, sn) => {
+  const persist = useCallback((d, ex, ec, f, a, sn, pl) => {
     if (!db) return;
-    const currentStateString = JSON.stringify({ days: d, expenses: ex, expCats: ec, flights: f, accommodation: a, sharedNotes: sn });
+    const currentStateString = JSON.stringify({ days: d, expenses: ex, expCats: ec, flights: f, accommodation: a, sharedNotes: sn, packingList: pl });
     if (lastSavedState.current !== currentStateString) {
       lastSavedState.current = currentStateString;
       firebaseSet(ref(db, `tripData/${tripId}`), {
-        days: d || [], sharedNotes: sn || [], expenses: ex || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
+        days: d || [], sharedNotes: sn || [], packingList: pl || [], expenses: ex || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
       }).catch(e => console.error("同步至雲端失敗", e));
     }
   }, [tripId]);
 
   useEffect(() => {
-    if (loaded && (days.length > 0 || expenses.length > 0 || sharedNotes.length > 0)) {
-      persist(days, expenses, expCats, flights, accommodation, sharedNotes);
+    if (loaded && (days.length > 0 || expenses.length > 0 || sharedNotes.length > 0 || packingList.length > 0)) {
+      persist(days, expenses, expCats, flights, accommodation, sharedNotes, packingList);
     }
-  }, [days, expenses, expCats, flights, accommodation, sharedNotes, loaded, persist]);
+  }, [days, expenses, expCats, flights, accommodation, sharedNotes, packingList, loaded, persist]);
 
   const addSharedNote = () => {
     if (!sharedNoteText.trim()) return;
@@ -228,7 +283,9 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
   if (!loaded) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>載入中...</div>;
 
-  const TABS = [{ key: "itinerary", label: t("trip.plan_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
+  const TABS = [{ key: "packing", label: t("trip.packing_tab") }, { key: "itinerary", label: t("trip.plan_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
+  const WMO_EMOJI = { 0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌦️", 55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "🌧️", 71: "❄️", 73: "❄️", 75: "❄️", 80: "🌦️", 81: "🌦️", 82: "⛈️", 95: "⛈️", 96: "⛈️", 99: "⛈️" };
+  const getWeatherEmoji = (code) => { if (code == null) return null; const keys = Object.keys(WMO_EMOJI).map(Number).sort((a, b) => b - a); const k = keys.find(k => code >= k); return WMO_EMOJI[k] || "🌡️"; };
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-main)", fontFamily: "'Noto Sans TC','Noto Sans KR',sans-serif", paddingBottom: 80 }}>
@@ -370,7 +427,26 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 11, background: day.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "var(--text-main)", boxShadow: `0 3px 10px ${day.color}44` }}>{dayIdx + 1}</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>{day.date}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>{day.date}</span>
+                      {(() => {
+                        // Extract YYYY-MM-DD from day object for weather lookup
+                        const dateKey = liveTripMeta.dateStart
+                          ? (() => {
+                              const d = new Date(liveTripMeta.dateStart);
+                              d.setDate(d.getDate() + dayIdx);
+                              return d.toISOString().split("T")[0];
+                            })()
+                          : null;
+                        const w = dateKey && weatherByDate[dateKey];
+                        if (!w) return null;
+                        return (
+                          <span style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 3 }}>
+                            {getWeatherEmoji(w.code)} <span style={{ fontSize: 10 }}>{w.max}°/{w.min}°</span>
+                          </span>
+                        );
+                      })()}
+                    </div>
                     {editingDayTitle === day.id ? (
                       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                         <input value={dayTitleVal} onChange={e => setDayTitleVal(e.target.value)} onKeyDown={e => e.key === "Enter" && saveDayTitle(day.id)} autoFocus
@@ -439,6 +515,50 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
             ))}
           </div>
         )}
+
+        {activeTab === "packing" && (() => {
+          const myPacking = packingList.filter(n => !n.creatorUid || n.creatorUid === currentUser?.uid);
+          const addPacking = () => {
+            if (!packingText.trim()) return;
+            setPackingList(prev => [...prev, { id: Date.now(), text: packingText.trim(), done: false, creatorUid: currentUser?.uid || null }]);
+            setPackingText("");
+          };
+          const togglePacking = (id) => setPackingList(prev => prev.map(p => p.id === id ? { ...p, done: !p.done } : p));
+          const deletePacking = (id) => setPackingList(prev => prev.filter(p => p.id !== id));
+          return (
+            <div style={{ animation: "fadeIn 0.3s ease" }}>
+              <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 18, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>{t("trip.packing_tab")}</div>
+                  <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "var(--bg-accent)", color: "var(--text-muted)" }}>🔒</span>
+                </div>
+                {myPacking.length === 0 && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "16px 0" }}>{t("trip.packing_empty")}</div>
+                )}
+                {myPacking.map(p => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border-light)" }}>
+                    <button onClick={() => togglePacking(p.id)}
+                      style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${p.done ? "var(--btn-bg)" : "var(--border-main)"}`, background: p.done ? "var(--btn-bg)" : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                      {p.done && <span style={{ color: "var(--btn-text)", fontSize: 10 }}>✓</span>}
+                    </button>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--text-main)", textDecoration: p.done ? "line-through" : "none", opacity: p.done ? 0.5 : 1 }}>{p.text}</span>
+                    <button onClick={() => deletePacking(p.id)}
+                      style={{ border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <input value={packingText} onChange={e => setPackingText(e.target.value)} onKeyDown={e => e.key === "Enter" && addPacking()}
+                    placeholder={t("trip.packing_add")}
+                    style={{ flex: 1, padding: "10px 12px", border: "1px solid var(--border-main)", borderRadius: 10, fontSize: 14, outline: "none", background: "var(--input-bg)", color: "var(--text-main)" }} />
+                  <button onClick={addPacking}
+                    style={{ padding: "8px 16px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 10, fontSize: 13, cursor: "pointer", fontWeight: 600, flexShrink: 0 }}>
+                    {t("dash.add_btn")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {activeTab === "members" && (() => {
           const allowedEmails = Object.values(liveTripMeta.allowedEmails || {});

@@ -1,8 +1,88 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useI18n } from '../lib/I18nContext.jsx';
 import { db } from '../lib/firebase.js';
-import { ref, onValue, update } from 'firebase/database';
-import { CURRENCIES, DEFAULT_EXP_CATS } from '../lib/consts.js';
+import { ref, onValue, update, get } from 'firebase/database';
+import { CURRENCIES, DEFAULT_EXP_CATS, COUNTRY_CURRENCY, DESTINATION_CITIES } from '../lib/consts.js';
+
+// Static city picker with search — uses pre-built Traditional Chinese list
+function CityPicker({ value, onChange, placeholder }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  const searchRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    if (open && searchRef.current) searchRef.current.focus();
+  }, [open]);
+
+  const filtered = query.trim()
+    ? DESTINATION_CITIES.filter(c =>
+        c.name.includes(query) ||
+        c.en.toLowerCase().includes(query.toLowerCase()) ||
+        (c.country_zh || "").includes(query)
+      )
+    : DESTINATION_CITIES;
+
+  const select = (city) => { onChange(city); setQuery(""); setOpen(false); };
+
+  const displayLabel = (v) => v ? `${v.name} · ${v.country_zh || ""}` : "";
+
+  return (
+    <div ref={containerRef} style={{ position: "relative" }}>
+      <div onMouseDown={() => setOpen(o => !o)} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border-main)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", userSelect: "none" }}>
+        <span style={{ color: value ? "var(--text-main)" : "var(--text-muted)" }}>
+          {value ? displayLabel(value) : (placeholder || "選擇目的地城市...")}
+        </span>
+        <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8 }}>{open ? "▲" : "▼"}</span>
+      </div>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "var(--bg-card)", border: "1px solid var(--border-main)", borderRadius: 10, zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.14)" }}>
+          <div style={{ padding: "8px 8px 6px", borderBottom: "1px solid var(--border-light)" }}>
+            <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="搜尋城市（中文或英文）..."
+              onMouseDown={e => e.stopPropagation()}
+              style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--border-main)", background: "var(--input-bg)", color: "var(--text-main)", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: "12px 14px", fontSize: 13, color: "var(--text-muted)", textAlign: "center" }}>無符合城市</div>
+            )}
+            {filtered.map(city => (
+              <div key={city.en} onMouseDown={() => select(city)}
+                style={{ padding: "9px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-light)", background: value?.en === city.en ? "var(--bg-accent)" : "transparent" }}>
+                <span style={{ fontSize: 14, color: "var(--text-main)", fontWeight: 500 }}>{city.name}</span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)", flexShrink: 0, marginLeft: 8 }}>{city.country_zh}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getTripStatus(dateStart, dateEnd) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(dateStart);
+  const end = new Date(dateEnd);
+  end.setHours(23, 59, 59, 999);
+  if (today < start) {
+    const days = Math.ceil((start - today) / 86400000);
+    return { type: "upcoming", days };
+  }
+  if (today <= end) {
+    const day = Math.floor((today - start) / 86400000) + 1;
+    return { type: "ongoing", day };
+  }
+  return { type: "ended" };
+}
 
 // Firebase key can't contain . so we sanitise email for use as a key
 const emailToKey = email => email.toLowerCase().replace(/\./g, '_').replace(/@/g, '-');
@@ -164,6 +244,9 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
   const [editingTripId, setEditingTripId] = useState(null);
   const [editingTripNameVal, setEditingTripNameVal] = useState("");
   const [editingCurrencyVal, setEditingCurrencyVal] = useState("KRW");
+  const [editingStartDate, setEditingStartDate] = useState("");
+  const [editingEndDate, setEditingEndDate] = useState("");
+  const [editingDestination, setEditingDestination] = useState(null);
   const [shareTrip, setShareTrip] = useState(null); // holds tripId string
 
   // New trip form state
@@ -172,6 +255,7 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
   const [endDate, setEndDate] = useState("");
   const [currency, setCurrency] = useState("KRW");
   const [inviteEmails, setInviteEmails] = useState([]);
+  const [destination, setDestination] = useState(null); // { en, zh } object
 
   useEffect(() => {
     if (!db) { setLoading(false); return; }
@@ -200,6 +284,7 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
     if (new Date(endDate) < new Date(startDate)) { alert(t("dash.err_date")); return; }
 
     const tripId = "trip_" + Date.now();
+    const autoCurrency = (destination && COUNTRY_CURRENCY[destination.country_code]) || "KRW";
 
     // Build allowedEmails: creator always included, plus any invitees
     const allEmails = [user.email.toLowerCase(), ...inviteEmails.map(e => e.toLowerCase()).filter(e => e !== user.email.toLowerCase())];
@@ -210,9 +295,10 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
       name: name.trim(),
       dateStart: startDate,
       dateEnd: endDate,
-      currency,
+      currency: autoCurrency,
       creatorEmail: user.email.toLowerCase(),
       allowedEmails,
+      ...(destination ? { destination } : {}),
     };
 
     const days = [];
@@ -232,7 +318,7 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
 
     update(ref(db), updates).then(() => {
       setShowNew(false);
-      setName(""); setStartDate(""); setEndDate(""); setCurrency("KRW"); setInviteEmails([]);
+      setName(""); setStartDate(""); setEndDate(""); setInviteEmails([]); setDestination(null);
     }).catch(e => { console.error("建立行程失敗", e); alert(t("dash.err_create_short") + "：" + e.message); });
   };
 
@@ -248,16 +334,95 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
     setEditingTripId(trip.id);
     setEditingTripNameVal(trip.name);
     setEditingCurrencyVal(trip.currency || "KRW");
+    setEditingStartDate(trip.dateStart || "");
+    setEditingEndDate(trip.dateEnd || "");
+    // destination may be new format { name, country_zh, country_code, lat, lng }
+    // or old format { en, zh } or legacy string — normalise to new format for display
+    const dest = trip.destination;
+    if (!dest) { setEditingDestination(null); }
+    else if (dest.name) { setEditingDestination(dest); } // new format
+    else if (dest.en) { setEditingDestination({ name: dest.en, country_zh: dest.zh || dest.en }); } // prev format
+    else { setEditingDestination({ name: String(dest), country_zh: "" }); } // legacy string
   };
 
-  const handleEditSave = (e, tripId) => {
+  const handleEditSave = async (e, trip) => {
     e.stopPropagation();
     if (!editingTripNameVal.trim()) { alert(t("dash.err_name")); return; }
-    update(ref(db), {
-      [`trips/${tripId}/name`]: editingTripNameVal.trim(),
-      [`trips/${tripId}/currency`]: editingCurrencyVal,
-    }).catch(err => alert(t("dash.err_update") + "：" + err.message));
+    if (new Date(editingEndDate) < new Date(editingStartDate)) { alert(t("dash.err_date")); return; }
+
+    const autoCurrency = (editingDestination?.country_code && COUNTRY_CURRENCY[editingDestination.country_code])
+      || trip.currency || "KRW";
+    const updates = {
+      [`trips/${trip.id}/name`]: editingTripNameVal.trim(),
+      [`trips/${trip.id}/currency`]: autoCurrency,
+      [`trips/${trip.id}/destination`]: editingDestination || null,
+    };
+
+    const datesChanged = editingStartDate !== trip.dateStart || editingEndDate !== trip.dateEnd;
+    if (datesChanged) {
+      updates[`trips/${trip.id}/dateStart`] = editingStartDate;
+      updates[`trips/${trip.id}/dateEnd`] = editingEndDate;
+      try {
+        const snap = await get(ref(db, `tripData/${trip.id}/days`));
+        const oldDays = snap.val() || [];
+        const colors = ["#E8A87C", "#D4A5A5", "#95B8D1", "#B5CDA3", "#C3B1E1", "#F2D0A4"];
+        const wds = [t("day_sun"), t("day_mon"), t("day_tue"), t("day_wed"), t("day_thu"), t("day_fri"), t("day_sat")];
+        const newDays = [];
+        let dId = 1;
+        const start = new Date(editingStartDate); start.setHours(0, 0, 0, 0);
+        const end = new Date(editingEndDate); end.setHours(23, 59, 59, 999);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const old = oldDays[dId - 1];
+          newDays.push({ id: `day${dId}`, date: `${d.getMonth() + 1}/${d.getDate()} (${wds[d.getDay()]})`, title: old?.title || `Day ${dId}`, color: old?.color || colors[(dId - 1) % colors.length], items: old?.items || [] });
+          dId++;
+        }
+        updates[`tripData/${trip.id}/days`] = newDays;
+      } catch (err) { console.error("更新行程日期失敗", err); }
+    }
+
+    update(ref(db), updates).catch(err => alert(t("dash.err_update") + "：" + err.message));
     setEditingTripId(null);
+  };
+
+  const handleDuplicate = async (e, trip) => {
+    e.stopPropagation();
+    const newId = `trip_${Date.now()}`;
+    const newMeta = {
+      id: newId,
+      name: trip.name + "（副本）",
+      dateStart: trip.dateStart,
+      dateEnd: trip.dateEnd,
+      currency: trip.currency,
+      creatorEmail: user.email.toLowerCase(),
+      allowedEmails: { ...(trip.allowedEmails || { [emailToKey(user.email)]: user.email.toLowerCase() }) },
+      ...(trip.destination ? { destination: trip.destination } : {}),
+    };
+    try {
+      const snap = await get(ref(db, `tripData/${trip.id}`));
+      const orig = snap.val() || {};
+      const newTripData = {
+        days: orig.days || [],
+        expenses: [],
+        expCats: orig.expCats || DEFAULT_EXP_CATS,
+        flights: { outbound: {}, inbound: {} },
+        accommodation: {},
+        sharedNotes: [],
+        packingList: [],
+      };
+      await update(ref(db), { [`trips/${newId}`]: newMeta, [`tripData/${newId}`]: newTripData });
+      // Open edit modal for the new trip immediately
+      setEditingTripId(newId);
+      setEditingTripNameVal(newMeta.name);
+      setEditingStartDate(newMeta.dateStart);
+      setEditingEndDate(newMeta.dateEnd);
+      const dest = newMeta.destination;
+      if (!dest) setEditingDestination(null);
+      else if (dest.name) setEditingDestination(dest);
+      else if (dest.en) setEditingDestination({ name: dest.en, country_zh: dest.zh || "" });
+      else setEditingDestination(null);
+    } catch (err) {
+      alert("複製失敗：" + err.message);
+    }
   };
 
   const tripList = Object.values(trips)
@@ -288,31 +453,67 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
                   </button>
                 </div>
 
-                {/* Edit + Delete — top right (creator only) */}
+                {/* Edit + Delete + Duplicate — top right (creator only) */}
                 {isTripCreator(trip) && (
                   <div style={{ position: "absolute", top: 14, right: 16, display: "flex", gap: 4 }}>
+                    <button onClick={(e) => handleDuplicate(e, trip)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12, padding: "4px 6px", borderRadius: 6 }}>⧉</button>
                     <button onClick={(e) => handleEditStart(e, trip)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, padding: 5 }}>✏️</button>
                     <button onClick={(e) => handleDelete(e, trip.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, padding: 5 }}>🗑</button>
                   </div>
                 )}
 
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>{trip.dateStart} — {trip.dateEnd}</div>
+                {(() => {
+                  const status = getTripStatus(trip.dateStart, trip.dateEnd);
+                  const badgeStyle = {
+                    upcoming: { bg: "#E3F2FD", color: "#1565C0" },
+                    ongoing: { bg: "#E8F5E9", color: "#2E7D32" },
+                    ended: { bg: "var(--bg-accent)", color: "var(--text-muted)" },
+                  }[status.type];
+                  const label = status.type === "upcoming"
+                    ? t("dash.status_upcoming").replace("{days}", status.days)
+                    : status.type === "ongoing"
+                    ? t("dash.status_ongoing").replace("{day}", status.day)
+                    : t("dash.status_ended");
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{trip.dateStart} — {trip.dateEnd}</span>
+                      <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, background: badgeStyle.bg, color: badgeStyle.color, fontWeight: 600 }}>{label}</span>
+                    </div>
+                  );
+                })()}
 
                 {editingTripId === trip.id ? (
                   <div style={{ marginBottom: 8 }} onClick={e => e.stopPropagation()}>
                     <input autoFocus value={editingTripNameVal} onChange={e => setEditingTripNameVal(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter") handleEditSave(e, trip.id); }}
                       placeholder={t("dash.trip_name")}
-                      style={{ fontSize: 20, fontWeight: 700, border: "none", borderBottom: "2px solid var(--btn-bg)", outline: "none", width: "100%", padding: "2px 0", color: "var(--text-main)", background: "transparent", marginBottom: 12 }} />
+                      style={{ fontSize: 18, fontWeight: 700, border: "none", borderBottom: "2px solid var(--btn-bg)", outline: "none", width: "100%", padding: "2px 0", color: "var(--text-main)", background: "transparent", marginBottom: 12 }} />
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>{t("dash.startDate")}</div>
+                        <input type="date" value={editingStartDate} onChange={e => setEditingStartDate(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border-main)", fontSize: 12, outline: "none", background: "var(--input-bg)", color: "var(--text-main)" }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>{t("dash.endDate")}</div>
+                        <input type="date" value={editingEndDate} min={editingStartDate} onChange={e => setEditingEndDate(e.target.value)}
+                          style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border-main)", fontSize: 12, outline: "none", background: "var(--input-bg)", color: "var(--text-main)" }} />
+                      </div>
+                    </div>
+                    {(() => {
+                      const cur = (editingDestination?.country_code && COUNTRY_CURRENCY[editingDestination.country_code]) || trip.currency || "KRW";
+                      return (
+                        <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("dash.currency")}</span>
+                          <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 8, background: "var(--bg-accent)", color: "var(--text-main)", fontWeight: 600 }}>{cur} — {t(`cur.${cur}`)}</span>
+                        </div>
+                      );
+                    })()}
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{t("dash.currency")}</div>
-                      <select value={editingCurrencyVal} onChange={e => setEditingCurrencyVal(e.target.value)}
-                        style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border-main)", fontSize: 12, outline: "none", background: "var(--bg-card)", color: "var(--text-main)" }}>
-                        {Object.entries(CURRENCIES).map(([k]) => <option key={k} value={k}>{k} - {t(`cur.${k}`)}</option>)}
-                      </select>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>{t("dash.destination")}</div>
+                      <CityPicker value={editingDestination} onChange={setEditingDestination} placeholder={t("dash.destination_search")} />
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={(e) => handleEditSave(e, trip.id)} style={{ padding: "4px 12px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>{t("dash.save")}</button>
+                      <button onClick={(e) => handleEditSave(e, trip)} style={{ padding: "4px 12px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>{t("dash.save")}</button>
                       <button onClick={(e) => { e.stopPropagation(); setEditingTripId(null); }} style={{ padding: "4px 12px", background: "var(--btn-hover)", color: "var(--text-muted)", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>{t("dash.cancel")}</button>
                     </div>
                   </div>
@@ -321,6 +522,11 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
                     <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-main)", marginBottom: 8 }}>{trip.name}</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, padding: "3px 8px", background: "#E8F5E9", borderRadius: 6, color: "#2E7D32" }}>{t(`cur.${trip.currency}`) || trip.currency}</span>
+                      {trip.destination && (
+                        <span style={{ fontSize: 11, padding: "3px 8px", background: "var(--bg-accent)", borderRadius: 6, color: "var(--text-muted)" }}>
+                          📍 {typeof trip.destination === "object" ? (trip.destination.name || trip.destination.zh || trip.destination.en) : trip.destination}
+                        </span>
+                      )}
                       <span style={{ fontSize: 11, padding: "3px 8px", background: "var(--bg-accent)", borderRadius: 6, color: "var(--text-muted)" }}>
                         👥 {Object.keys(trip.allowedEmails || {}).length || 1} {t("dash.share_members")}
                       </span>
@@ -365,11 +571,18 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
                 </div>
 
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>{t("dash.currency_desc")}</div>
-                  <select value={currency} onChange={e => setCurrency(e.target.value)}
-                    style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid var(--border-main)", outline: "none", background: "var(--bg-card)", color: "var(--text-main)" }}>
-                    {Object.entries(CURRENCIES).map(([k]) => <option key={k} value={k}>{k} - {t(`cur.${k}`)}</option>)}
-                  </select>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>
+                    {t("dash.destination")} <span style={{ opacity: 0.6, fontSize: 11 }}>({t("dash.destination_hint")})</span>
+                  </div>
+                  <CityPicker value={destination} onChange={setDestination} placeholder={t("dash.destination_search")} />
+                  {destination && (
+                    <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("dash.currency_desc")}：</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: "var(--bg-accent)", color: "var(--text-main)", fontWeight: 600 }}>
+                        {(() => { const c = COUNTRY_CURRENCY[destination.country_code] || "KRW"; return `${c} — ${t(`cur.${c}`)}`; })()}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ marginBottom: 20 }}>

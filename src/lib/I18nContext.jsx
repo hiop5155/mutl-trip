@@ -133,6 +133,10 @@ export function I18nProvider({ children }) {
       "exp.cat_stay": "住宿",
       "exp.cat_other": "其他",
       "cur.KRW": "韓幣", "cur.TWD": "台幣", "cur.JPY": "日幣", "cur.THB": "泰銖", "cur.USD": "美金",
+      "cur.SGD": "新幣", "cur.HKD": "港幣", "cur.MOP": "澳門幣", "cur.EUR": "歐元", "cur.GBP": "英鎊",
+      "cur.AUD": "澳幣", "cur.NZD": "紐幣", "cur.CAD": "加幣", "cur.MYR": "馬幣", "cur.IDR": "印尼盾",
+      "cur.VND": "越南盾", "cur.PHP": "菲幣", "cur.AED": "迪拉姆", "cur.CHF": "瑞士法郎",
+      "cur.CZK": "捷克克朗", "cur.DKK": "丹麥克朗", "cur.NOK": "挪威克朗", "cur.SEK": "瑞典克朗",
       "trip.shared_notes_empty": "還沒有備忘錄",
       "trip.shared_note_placeholder": "新增私人備忘...",
       "app.edit_name": "編輯暱稱",
@@ -142,7 +146,17 @@ export function I18nProvider({ children }) {
       "trip.members_tab": "👥 成員",
       "trip.members_title": "成員對應表",
       "trip.member_not_joined": "尚未加入",
-      "trip.member_legacy": "此行程使用舊版格式，無成員資料"
+      "trip.member_legacy": "此行程使用舊版格式，無成員資料",
+      "trip.packing_tab": "🧳 行李",
+      "trip.packing_add": "新增行李項目...",
+      "trip.packing_empty": "還沒有任何項目，快來新增吧！",
+      "dash.duplicate": "複製",
+      "dash.destination": "目的地城市（英文）",
+      "dash.destination_hint": "選填，用於顯示天氣（例：Seoul）",
+      "dash.status_upcoming": "還有 {days} 天",
+      "dash.status_ongoing": "進行中 · 第 {day} 天",
+      "dash.status_ended": "已結束",
+      "dash.destination_search": "搜尋城市（中文或英文）"
     },
     en: {
       "app.title": "Trip Planner",
@@ -256,6 +270,10 @@ export function I18nProvider({ children }) {
       "exp.cat_stay": "Hotel",
       "exp.cat_other": "Other",
       "cur.KRW": "KRW", "cur.TWD": "TWD", "cur.JPY": "JPY", "cur.THB": "THB", "cur.USD": "USD",
+      "cur.SGD": "SGD", "cur.HKD": "HKD", "cur.MOP": "MOP", "cur.EUR": "EUR", "cur.GBP": "GBP",
+      "cur.AUD": "AUD", "cur.NZD": "NZD", "cur.CAD": "CAD", "cur.MYR": "MYR", "cur.IDR": "IDR",
+      "cur.VND": "VND", "cur.PHP": "PHP", "cur.AED": "AED", "cur.CHF": "CHF",
+      "cur.CZK": "CZK", "cur.DKK": "DKK", "cur.NOK": "NOK", "cur.SEK": "SEK",
       "trip.shared_notes_empty": "No private notes yet",
       "trip.shared_note_placeholder": "Add a private note...",
       "app.edit_name": "Edit Name",
@@ -265,7 +283,17 @@ export function I18nProvider({ children }) {
       "trip.members_tab": "👥 Members",
       "trip.members_title": "Member List",
       "trip.member_not_joined": "Not joined yet",
-      "trip.member_legacy": "This trip uses the legacy format, no member data available"
+      "trip.member_legacy": "This trip uses the legacy format, no member data available",
+      "trip.packing_tab": "🧳 Packing",
+      "trip.packing_add": "Add item...",
+      "trip.packing_empty": "No items yet — add something!",
+      "dash.duplicate": "Duplicate",
+      "dash.destination": "Destination City",
+      "dash.destination_hint": "Optional, used for weather (e.g. Seoul)",
+      "dash.status_upcoming": "{days} days to go",
+      "dash.status_ongoing": "Ongoing · Day {day}",
+      "dash.status_ended": "Ended",
+      "dash.destination_search": "Search city (Chinese or English)"
     }
   };
 
