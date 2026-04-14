@@ -264,6 +264,24 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
     setNewText(""); setNewMapUrl(""); setNewStartTime("09:00"); setNewEndTime("10:00"); setNewType("activity"); setAddingTo(null);
   };
 
+  const dragItemRef = useRef(null);
+  const dragOverRef = useRef(null);
+  const [draggingId, setDraggingId] = useState(null);
+
+  const reorderItem = (dayId, fromId, toId) => {
+    if (fromId === toId) return;
+    setDays(prev => prev.map(d => {
+      if (d.id !== dayId) return d;
+      const items = [...(d.items || [])];
+      const fi = items.findIndex(i => i.id === fromId);
+      const ti = items.findIndex(i => i.id === toId);
+      if (fi === -1 || ti === -1) return d;
+      const [moved] = items.splice(fi, 1);
+      items.splice(ti, 0, moved);
+      return { ...d, items };
+    }));
+  };
+
   const moveItem = (dayId, itemId, dir) => setDays(p => p.map(d => {
     if (d.id !== dayId) return d;
     const items = d.items || [];
@@ -498,7 +516,20 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                       </div>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{(day.items || []).filter(i => i.done).length}/{(day.items || []).length}</div>
+                  {(() => {
+                    const total = (day.items || []).length;
+                    const done = (day.items || []).filter(i => i.done).length;
+                    const pct = total > 0 ? done / total : 0;
+                    const color = pct === 1 ? "#4CAF50" : pct > 0 ? day.color : "var(--border-main)";
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 32 }}>
+                        <span style={{ fontSize: 10, color: pct === 1 ? "#4CAF50" : "var(--text-muted)", fontWeight: 600 }}>{done}/{total}</span>
+                        <div style={{ width: 32, height: 3, background: "var(--border-light)", borderRadius: 2, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${pct * 100}%`, background: color, borderRadius: 2, transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {itinMode === "timeline" ? (() => {
@@ -569,11 +600,18 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                     const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
                     const nc = (item.notes || []).length;
                     return (
-                      <div key={item.id} style={{ borderBottom: idx < day.items.length - 1 ? "1px solid #F5F2ED" : "none", display: "flex", alignItems: "center", opacity: item.done ? 0.4 : 1, transition: "opacity 0.3s" }}>
-                        <button onClick={() => toggleDone(day.id, item.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${item.done ? day.color : "#ddd"}`, background: item.done ? day.color : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 0 0 14px", padding: 0 }}>
+                      <div key={item.id}
+                        draggable
+                        onDragStart={() => { dragItemRef.current = { dayId: day.id, itemId: item.id }; setDraggingId(item.id); }}
+                        onDragOver={e => { e.preventDefault(); dragOverRef.current = item.id; }}
+                        onDrop={() => { if (dragItemRef.current?.dayId === day.id) reorderItem(day.id, dragItemRef.current.itemId, item.id); dragItemRef.current = null; dragOverRef.current = null; setDraggingId(null); }}
+                        onDragEnd={() => { dragItemRef.current = null; dragOverRef.current = null; setDraggingId(null); }}
+                        style={{ borderBottom: idx < day.items.length - 1 ? "1px solid #F5F2ED" : "none", display: "flex", alignItems: "center", opacity: draggingId === item.id ? 0.35 : item.done ? 0.4 : 1, transition: "opacity 0.2s", cursor: "grab" }}>
+                        <span style={{ fontSize: 11, color: "var(--border-main)", padding: "0 6px 0 10px", cursor: "grab", flexShrink: 0, userSelect: "none" }}>⠿</span>
+                        <button onClick={() => toggleDone(day.id, item.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${item.done ? day.color : "#ddd"}`, background: item.done ? day.color : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
                           {item.done && <span style={{ color: "var(--btn-text)", fontSize: 11 }}>✓</span>}
                         </button>
-                        <div onClick={() => { setModalDayId(day.id); setModalItem(item); setModalDayColor(day.color); }} style={{ flex: 1, padding: "12px 10px", cursor: "pointer", minWidth: 0 }}>
+                        <div onClick={() => { setModalDayId(day.id); setModalItem(item); setModalDayColor(day.color); }} style={{ flex: 1, padding: "12px 8px", cursor: "pointer", minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
                             <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>{item.startTime}–{item.endTime}</span>
                             <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.bg }}>{cfg.emoji}</span>
@@ -583,13 +621,9 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                         </div>
                         {item.mapUrl && (
                           <a href={item.mapUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 14, color: "#4A90D9", textDecoration: "none", flexShrink: 0, padding: "0 6px" }}>📍</a>
+                            style={{ fontSize: 14, color: "#4A90D9", textDecoration: "none", flexShrink: 0, padding: "0 4px" }}>📍</a>
                         )}
-                        <div style={{ display: "flex", flexShrink: 0, opacity: 0.35, paddingRight: 6 }}>
-                          <button onClick={() => moveItem(day.id, item.id, -1)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 9, padding: 0, color: "var(--text-muted)" }}>▲</button>
-                          <button onClick={() => moveItem(day.id, item.id, 1)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 9, padding: 0, color: "var(--text-muted)" }}>▼</button>
-                          <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 11, padding: 0, color: "var(--text-main)" }}>🗑</button>
-                        </div>
+                        <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 28, height: 28, border: "none", background: "transparent", cursor: "pointer", fontSize: 13, padding: 0, color: "var(--text-muted)", flexShrink: 0, opacity: 0.5 }}>🗑</button>
                       </div>
                     );
                   })}
