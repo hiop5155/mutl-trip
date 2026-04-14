@@ -640,7 +640,11 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                           <a href={item.mapUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                             style={{ fontSize: 14, color: "#4A90D9", textDecoration: "none", flexShrink: 0, padding: "0 4px" }}>📍</a>
                         )}
-                        <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 28, height: 28, border: "none", background: "transparent", cursor: "pointer", fontSize: 13, padding: 0, color: "var(--text-muted)", flexShrink: 0, opacity: 0.5 }}>🗑</button>
+                        <div style={{ display: "flex", flexShrink: 0, opacity: 0.35, paddingRight: 4 }}>
+                          <button onClick={() => moveItem(day.id, item.id, -1)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 9, padding: 0, color: "var(--text-muted)" }}>▲</button>
+                          <button onClick={() => moveItem(day.id, item.id, 1)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 9, padding: 0, color: "var(--text-muted)" }}>▼</button>
+                          <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 11, padding: 0, color: "var(--text-main)" }}>🗑</button>
+                        </div>
                       </div>
                     );
                   })}
