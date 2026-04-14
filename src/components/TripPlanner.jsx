@@ -94,8 +94,15 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
           if (!loc) return;
           latitude = loc.latitude; longitude = loc.longitude;
         }
-        const start = liveTripMeta.dateStart;
-        const end = liveTripMeta.dateEnd;
+        // Forecast API only covers today → today+16 days; skip if trip is outside that window
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const maxForecast = new Date(today); maxForecast.setDate(today.getDate() + 16);
+        const tripStart = new Date(liveTripMeta.dateStart);
+        const tripEnd = new Date(liveTripMeta.dateEnd);
+        if (tripEnd < today || tripStart > maxForecast) return;
+        const fmt = d => d.toISOString().split('T')[0];
+        const start = fmt(tripStart < today ? today : tripStart);
+        const end = fmt(tripEnd > maxForecast ? maxForecast : tripEnd);
         const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${start}&end_date=${end}`);
         const wData = await wRes.json();
         if (!wData.daily) return;
