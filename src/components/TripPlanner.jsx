@@ -456,7 +456,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
           <div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
               <div style={{ display: "flex", gap: 2, background: "var(--bg-card)", borderRadius: 9, padding: 2, border: "1px solid var(--border-main)" }}>
-                {[["list", t("trip.list_mode")], ["timeline", t("trip.timeline_mode")], ["map", t("trip.map_tab")]].map(([mode, label]) => (
+                {[["list", t("trip.list_mode")], ["timeline", t("trip.timeline_mode")]].map(([mode, label]) => (
                   <button key={mode} onClick={() => setItinMode(mode)} style={{ padding: "4px 11px", borderRadius: 7, border: "none", background: itinMode === mode ? "var(--btn-bg)" : "transparent", color: itinMode === mode ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{label}</button>
                 ))}
               </div>
@@ -520,7 +520,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                               <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.bg }}>{cfg.emoji}</span>
                               {item.endTime && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>— {item.endTime}</span>}
                               {nc > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--border-main)", color: "var(--text-main)" }}>💬{nc}</span>}
-                              {item.mapUrl && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#E3F2FD", color: "#4A90D9" }}>📍</span>}
+                              {item.mapUrl && <a href={item.mapUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: "#4A90D9", textDecoration: "none" }}>📍</a>}
                               <button onClick={e => { e.stopPropagation(); toggleDone(day.id, item.id); }} style={{ marginLeft: "auto", width: 20, height: 20, borderRadius: 5, border: `2px solid ${item.done ? day.color : "var(--border-main)"}`, background: item.done ? day.color : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
                                 {item.done && <span style={{ color: "var(--btn-text)", fontSize: 10 }}>✓</span>}
                               </button>
@@ -550,49 +550,16 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                                     <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
                                       <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.bg }}>{cfg.emoji}</span>
                                       {nc > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--border-main)", color: "var(--text-main)" }}>💬{nc}</span>}
-                                      {item.mapUrl && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#E3F2FD", color: "#4A90D9" }}>📍</span>}
                                     </div>
                                     <div style={{ fontSize: 13, color: "var(--text-main)", textDecoration: item.done ? "line-through" : "none", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
                                   </div>
+                                  {item.mapUrl && <a href={item.mapUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 14, color: "#4A90D9", textDecoration: "none", flexShrink: 0, padding: "0 4px" }}>📍</a>}
                                   <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 11, padding: 0, color: "var(--text-main)", opacity: 0.4, paddingRight: 10 }}>🗑</button>
                                 </div>
                               );
                             })}
                           </div>
                         </>
-                      )}
-                    </div>
-                  );
-                })() : itinMode === "map" ? (() => {
-                  const mapItems = (day.items || []).filter(i => i.mapUrl);
-                  const routeUrl = mapItems.length > 1
-                    ? `https://www.google.com/maps/dir/${mapItems.map(i => encodeURIComponent(i.text)).join('/')}`
-                    : null;
-                  return mapItems.length === 0 ? (
-                    <div style={{ background: "var(--bg-card)", borderRadius: 12, padding: "14px 16px", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>{t("trip.map_no_locations")}</div>
-                  ) : (
-                    <div style={{ background: "var(--bg-card)", borderRadius: 12, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                      {mapItems.map((item, idx) => {
-                        const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
-                        return (
-                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: idx < mapItems.length - 1 ? "1px solid var(--border-light)" : "none" }}>
-                            <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, color: "var(--text-main)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
-                              {item.startTime && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.startTime}{item.endTime ? `–${item.endTime}` : ""}</div>}
-                            </div>
-                            <a href={item.mapUrl} target="_blank" rel="noopener noreferrer"
-                              style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "#E3F2FD", color: "#4A90D9", textDecoration: "none", fontWeight: 600, flexShrink: 0 }}>
-                              📍 {t("trip.map_open")}
-                            </a>
-                          </div>
-                        );
-                      })}
-                      {routeUrl && (
-                        <a href={routeUrl} target="_blank" rel="noopener noreferrer"
-                          style={{ display: "block", textAlign: "center", padding: "10px", fontSize: 12, color: "#4A90D9", textDecoration: "none", borderTop: "1px solid var(--border-light)", fontWeight: 600 }}>
-                          🗺️ {t("trip.map_route_btn")}
-                        </a>
                       )}
                     </div>
                   );
@@ -611,11 +578,14 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                             <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>{item.startTime}–{item.endTime}</span>
                             <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.bg }}>{cfg.emoji}</span>
                             {nc > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--border-main)", color: "var(--text-main)" }}>💬{nc}</span>}
-                            {item.mapUrl && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#E3F2FD", color: "#4A90D9" }}>📍</span>}
                           </div>
                           <div style={{ fontSize: 13, color: "var(--text-main)", textDecoration: item.done ? "line-through" : "none", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
                         </div>
-                        <div style={{ display: "flex", flexShrink: 0, opacity: 0.35, paddingRight: 10 }}>
+                        {item.mapUrl && (
+                          <a href={item.mapUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                            style={{ fontSize: 14, color: "#4A90D9", textDecoration: "none", flexShrink: 0, padding: "0 6px" }}>📍</a>
+                        )}
+                        <div style={{ display: "flex", flexShrink: 0, opacity: 0.35, paddingRight: 6 }}>
                           <button onClick={() => moveItem(day.id, item.id, -1)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 9, padding: 0, color: "var(--text-muted)" }}>▲</button>
                           <button onClick={() => moveItem(day.id, item.id, 1)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 9, padding: 0, color: "var(--text-muted)" }}>▼</button>
                           <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 11, padding: 0, color: "var(--text-main)" }}>🗑</button>
