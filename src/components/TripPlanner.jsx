@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useI18n } from '../lib/I18nContext.jsx';
 import { db } from "../lib/firebase.js";
-import { ref, onValue, set as firebaseSet, update } from "firebase/database";
+import { ref, onValue, set as firebaseSet, update, onDisconnect, remove } from "firebase/database";
 import { FlightCard, AccommodationCard, TimePicker } from "./Cards.jsx";
 import ItemModal from "./ItemModal.jsx";
 import ExpenseTracker from "./ExpenseTracker.jsx";
@@ -21,6 +21,8 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
   const [days, setDays] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState("packing");
+  const [timelineMode, setTimelineMode] = useState(false);
+  const [onlineMembers, setOnlineMembers] = useState({});
   const [modalItem, setModalItem] = useState(null);
   const [modalDayId, setModalDayId] = useState(null);
   const [modalDayColor, setModalDayColor] = useState("#ccc");
@@ -124,6 +126,21 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
     });
     return () => unsub();
   }, [tripId, currentUser]);
+
+  // Realtime presence — write on connect, remove on disconnect/unmount
+  useEffect(() => {
+    if (!db || !currentUser?.uid || !tripId) return;
+    const presRef = ref(db, `presence/${tripId}/${currentUser.uid}`);
+    const connRef = ref(db, '.info/connected');
+    const unsubConn = onValue(connRef, snap => {
+      if (snap.val() === true) {
+        firebaseSet(presRef, { name: currentUser.displayName || currentUser.email || "Traveler", uid: currentUser.uid });
+        onDisconnect(presRef).remove();
+      }
+    });
+    const unsubPres = onValue(ref(db, `presence/${tripId}`), snap => setOnlineMembers(snap.val() || {}));
+    return () => { unsubConn(); unsubPres(); remove(presRef); };
+  }, [tripId, currentUser?.uid]);
 
   // Add default packing items for new users (runs once after load)
   const packingInitialized = useRef(false);
@@ -283,7 +300,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
   if (!loaded) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>載入中...</div>;
 
-  const TABS = [{ key: "packing", label: t("trip.packing_tab") }, { key: "itinerary", label: t("trip.plan_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
+  const TABS = [{ key: "packing", label: t("trip.packing_tab") }, { key: "itinerary", label: t("trip.plan_tab") }, { key: "map", label: t("trip.map_tab") }, { key: "info", label: t("trip.info_tab") }, { key: "expense", label: t("trip.expense_tab") }, { key: "notes", label: t("trip.notes_tab") }, { key: "members", label: t("trip.members_tab") }];
   const WMO_EMOJI = { 0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌦️", 55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "🌧️", 71: "❄️", 73: "❄️", 75: "❄️", 80: "🌦️", 81: "🌦️", 82: "⛈️", 95: "⛈️", 96: "⛈️", 99: "⛈️" };
   const getWeatherEmoji = (code) => { if (code == null) return null; const keys = Object.keys(WMO_EMOJI).map(Number).sort((a, b) => b - a); const k = keys.find(k => code >= k); return WMO_EMOJI[k] || "🌡️"; };
 
@@ -317,9 +334,24 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
           <div style={{ marginTop: 10, height: 3, background: "rgba(255,255,255,0.1)", borderRadius: 2, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${totalItems ? (doneItems / totalItems) * 100 : 0}%`, background: "linear-gradient(90deg,#C4A882,#E8CFA8)", borderRadius: 2, transition: "width 0.4s" }} />
           </div>
-          <div style={{ display: "flex", gap: 3, marginTop: 12 }}>
-            {TABS.map(t => (
-              <button key={t.key} onClick={() => setActiveTab(t.key)} style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "none", background: activeTab === t.key ? "rgba(255,255,255,0.15)" : "transparent", color: activeTab === t.key ? "#FAF7F2" : "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.2s", whiteSpace: "nowrap" }}>{t.label}</button>
+          {(() => {
+            const others = Object.values(onlineMembers).filter(m => m.uid !== currentUser?.uid);
+            if (others.length === 0) return null;
+            return (
+              <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t("trip.online_now")}：</span>
+                {others.map(m => (
+                  <span key={m.uid} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(80,200,100,0.25)", color: "#90EE90", display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4CAF50", display: "inline-block" }} />
+                    {m.name}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+          <div style={{ display: "flex", gap: 3, marginTop: 10, overflowX: "auto", scrollbarWidth: "none", msOverflowStyle: "none" }}>
+            {TABS.map(tab => (
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ flexShrink: 0, padding: "7px 10px", borderRadius: 8, border: "none", background: activeTab === tab.key ? "rgba(255,255,255,0.15)" : "transparent", color: activeTab === tab.key ? "#FAF7F2" : "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.2s", whiteSpace: "nowrap" }}>{tab.label}</button>
             ))}
           </div>
         </div>
@@ -422,6 +454,11 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
         {activeTab === "itinerary" && (
           <div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+              <button onClick={() => setTimelineMode(m => !m)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid var(--border-main)", background: timelineMode ? "var(--btn-bg)" : "var(--bg-card)", color: timelineMode ? "var(--btn-text)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                {timelineMode ? t("trip.list_mode") : t("trip.timeline_mode")}
+              </button>
+            </div>
             {days.map((day, dayIdx) => (
               <div key={day.id} style={{ marginBottom: 22, animation: `fadeIn 0.3s ease ${dayIdx * 0.05}s both` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -462,6 +499,69 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{(day.items || []).filter(i => i.done).length}/{(day.items || []).length}</div>
                 </div>
 
+                {timelineMode ? (() => {
+                  const withTime = (day.items || []).filter(i => i.startTime).sort((a, b) => a.startTime.localeCompare(b.startTime));
+                  const noTime = (day.items || []).filter(i => !i.startTime);
+                  const renderTimelineItem = (item, isLast) => {
+                    const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
+                    const nc = (item.notes || []).length;
+                    return (
+                      <div key={item.id} style={{ display: "flex", gap: 0, opacity: item.done ? 0.45 : 1 }}>
+                        <div style={{ width: 52, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 2 }}>
+                          <span style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 600, lineHeight: 1 }}>{item.startTime || ""}</span>
+                          <div style={{ width: 10, height: 10, borderRadius: "50%", background: item.done ? day.color : "var(--border-main)", border: `2px solid ${day.color}`, margin: "4px 0", flexShrink: 0 }} />
+                          {!isLast && <div style={{ width: 2, flex: 1, background: "var(--border-light)", minHeight: 20 }} />}
+                        </div>
+                        <div style={{ flex: 1, paddingBottom: 14, paddingLeft: 6 }}>
+                          <div onClick={() => { setModalDayId(day.id); setModalItem(item); setModalDayColor(day.color); }} style={{ background: "var(--bg-card)", borderRadius: 10, padding: "10px 12px", cursor: "pointer", boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.bg }}>{cfg.emoji}</span>
+                              {item.endTime && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>— {item.endTime}</span>}
+                              {nc > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--border-main)", color: "var(--text-main)" }}>💬{nc}</span>}
+                              {item.mapUrl && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#E3F2FD", color: "#4A90D9" }}>📍</span>}
+                              <button onClick={e => { e.stopPropagation(); toggleDone(day.id, item.id); }} style={{ marginLeft: "auto", width: 20, height: 20, borderRadius: 5, border: `2px solid ${item.done ? day.color : "var(--border-main)"}`, background: item.done ? day.color : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                                {item.done && <span style={{ color: "var(--btn-text)", fontSize: 10 }}>✓</span>}
+                              </button>
+                            </div>
+                            <div style={{ fontSize: 13, color: "var(--text-main)", textDecoration: item.done ? "line-through" : "none", lineHeight: 1.4 }}>{item.text}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  };
+                  return (
+                    <div style={{ paddingTop: 8, paddingLeft: 4 }}>
+                      {withTime.map((item, i) => renderTimelineItem(item, i === withTime.length - 1 && noTime.length === 0))}
+                      {noTime.length > 0 && (
+                        <>
+                          {withTime.length > 0 && <div style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 52, marginBottom: 6, marginTop: 2 }}>{t("trip.timeline_no_time")}</div>}
+                          <div style={{ background: "var(--bg-card)", borderRadius: 12, overflow: "hidden", marginLeft: 52 }}>
+                            {noTime.map((item, idx) => {
+                              const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
+                              const nc = (item.notes || []).length;
+                              return (
+                                <div key={item.id} style={{ borderBottom: idx < noTime.length - 1 ? "1px solid var(--border-light)" : "none", display: "flex", alignItems: "center", opacity: item.done ? 0.45 : 1 }}>
+                                  <button onClick={() => toggleDone(day.id, item.id)} style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${item.done ? day.color : "#ddd"}`, background: item.done ? day.color : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 0 0 12px", padding: 0 }}>
+                                    {item.done && <span style={{ color: "var(--btn-text)", fontSize: 10 }}>✓</span>}
+                                  </button>
+                                  <div onClick={() => { setModalDayId(day.id); setModalItem(item); setModalDayColor(day.color); }} style={{ flex: 1, padding: "11px 10px", cursor: "pointer", minWidth: 0 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+                                      <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.bg }}>{cfg.emoji}</span>
+                                      {nc > 0 && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "var(--border-main)", color: "var(--text-main)" }}>💬{nc}</span>}
+                                      {item.mapUrl && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#E3F2FD", color: "#4A90D9" }}>📍</span>}
+                                    </div>
+                                    <div style={{ fontSize: 13, color: "var(--text-main)", textDecoration: item.done ? "line-through" : "none", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
+                                  </div>
+                                  <button onClick={() => deleteItem(day.id, item.id)} style={{ width: 22, height: 22, border: "none", background: "transparent", cursor: "pointer", fontSize: 11, padding: 0, color: "var(--text-main)", opacity: 0.4, paddingRight: 10 }}>🗑</button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })() : (
                 <div style={{ background: "var(--bg-card)", borderRadius: 14, overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}>
                   {(day.items || []).map((item, idx) => {
                     const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
@@ -488,31 +588,83 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
                       </div>
                     );
                   })}
+                </div>)}
 
-                  {addingTo === day.id ? (
-                    <div style={{ padding: 14, borderTop: "1px dashed var(--border-light)", animation: "fadeIn 0.2s ease" }}>
-                      <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-end" }}>
-                        <TimePicker label={t("trip.depart")} value={newStartTime} onChange={setNewStartTime} />
-                        <TimePicker label={t("trip.arrive")} value={newEndTime} onChange={setNewEndTime} />
-                      </div>
-                      <input value={newText} onChange={e => setNewText(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem(day.id)} placeholder={t("trip.item_placeholder")} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 16, outline: "none", marginBottom: 8, color: "var(--text-main)", background: "var(--input-bg)" }} autoFocus />
-                      <input value={newMapUrl} onChange={e => setNewMapUrl(e.target.value)} placeholder={`📍 ${t("trip.map_title")} (${t("trip.map_optional")})`} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 16, outline: "none", marginBottom: 10, color: "var(--text-main)", background: "var(--input-bg)" }} />
-                      <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-                        {Object.entries(TYPE_CFG).map(([k, v]) => (
-                          <button key={k} onClick={() => setNewType(k)} style={{ padding: "3px 10px", borderRadius: 10, border: newType === k ? "2px solid var(--btn-bg)" : "1px solid var(--border-main)", background: newType === k ? v.bg : "var(--bg-card)", fontSize: 10, cursor: "pointer", color: "var(--text-main)" }}>{v.emoji} {v.label}</button>
-                        ))}
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                          <button onClick={() => addItem(day.id)} style={{ padding: "5px 14px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("dash.add_btn")}</button>
-                          <button onClick={() => { setAddingTo(null); setNewText(""); setNewMapUrl(""); }} style={{ padding: "5px 12px", background: "var(--btn-hover)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>{t("dash.cancel")}</button>
-                        </div>
+                {addingTo === day.id ? (
+                  <div style={{ padding: 14, marginTop: 2, background: "var(--bg-card)", borderRadius: 12, animation: "fadeIn 0.2s ease" }}>
+                    <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-end" }}>
+                      <TimePicker label={t("trip.depart")} value={newStartTime} onChange={setNewStartTime} />
+                      <TimePicker label={t("trip.arrive")} value={newEndTime} onChange={setNewEndTime} />
+                    </div>
+                    <input value={newText} onChange={e => setNewText(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem(day.id)} placeholder={t("trip.item_placeholder")} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 16, outline: "none", marginBottom: 8, color: "var(--text-main)", background: "var(--input-bg)" }} autoFocus />
+                    <input value={newMapUrl} onChange={e => setNewMapUrl(e.target.value)} placeholder={`📍 ${t("trip.map_title")} (${t("trip.map_optional")})`} style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border-main)", borderRadius: 8, fontSize: 16, outline: "none", marginBottom: 10, color: "var(--text-main)", background: "var(--input-bg)" }} />
+                    <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                      {Object.entries(TYPE_CFG).map(([k, v]) => (
+                        <button key={k} onClick={() => setNewType(k)} style={{ padding: "3px 10px", borderRadius: 10, border: newType === k ? "2px solid var(--btn-bg)" : "1px solid var(--border-main)", background: newType === k ? v.bg : "var(--bg-card)", fontSize: 10, cursor: "pointer", color: "var(--text-main)" }}>{v.emoji} {v.label}</button>
+                      ))}
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                        <button onClick={() => addItem(day.id)} style={{ padding: "5px 14px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t("dash.add_btn")}</button>
+                        <button onClick={() => { setAddingTo(null); setNewText(""); setNewMapUrl(""); }} style={{ padding: "5px 12px", background: "var(--btn-hover)", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>{t("dash.cancel")}</button>
                       </div>
                     </div>
-                  ) : (
-                    <button onClick={() => setAddingTo(day.id)} style={{ width: "100%", padding: "11px", border: "none", borderTop: "1px dashed var(--border-main)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>{t("trip.add_item")}</button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setAddingTo(day.id)} style={{ width: "100%", padding: "11px", border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", marginTop: 4 }}>{t("trip.add_item")}</button>
+                )}
               </div>
             ))}
+          </div>
+        )}
+
+        {activeTab === "map" && (
+          <div style={{ animation: "fadeIn 0.3s ease" }}>
+            {days.map((day, dayIdx) => {
+              const mapItems = (day.items || []).filter(i => i.mapUrl);
+              const routeUrl = mapItems.length > 1
+                ? `https://www.google.com/maps/dir/${mapItems.map(i => encodeURIComponent(i.text)).join('/')}`
+                : null;
+              return (
+                <div key={day.id} style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: 8, background: day.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "var(--text-main)" }}>{dayIdx + 1}</div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{day.title}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{day.date}</div>
+                      </div>
+                    </div>
+                    {routeUrl && (
+                      <a href={routeUrl} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "#E3F2FD", color: "#4A90D9", textDecoration: "none", fontWeight: 600 }}>
+                        🗺️ {t("trip.map_route_btn")}
+                      </a>
+                    )}
+                  </div>
+                  {mapItems.length === 0 ? (
+                    <div style={{ background: "var(--bg-card)", borderRadius: 12, padding: "14px 16px", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>{t("trip.map_no_locations")}</div>
+                  ) : (
+                    <div style={{ background: "var(--bg-card)", borderRadius: 12, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                      {mapItems.map((item, idx) => {
+                        const cfg = TYPE_CFG[item.type] || TYPE_CFG.activity;
+                        return (
+                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: idx < mapItems.length - 1 ? "1px solid var(--border-light)" : "none" }}>
+                            <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, color: "var(--text-main)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.text}</div>
+                              {item.startTime && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.startTime}{item.endTime ? `–${item.endTime}` : ""}</div>}
+                            </div>
+                            <a href={item.mapUrl} target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "#E3F2FD", color: "#4A90D9", textDecoration: "none", fontWeight: 600, flexShrink: 0 }}>
+                              📍 {t("trip.map_open")}
+                            </a>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

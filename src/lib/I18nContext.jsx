@@ -156,7 +156,15 @@ export function I18nProvider({ children }) {
       "dash.status_upcoming": "還有 {days} 天",
       "dash.status_ongoing": "進行中 · 第 {day} 天",
       "dash.status_ended": "已結束",
-      "dash.destination_search": "搜尋城市（中文或英文）"
+      "dash.destination_search": "搜尋城市（中文或英文）",
+      "trip.map_tab": "🗺️ 地圖",
+      "trip.map_no_locations": "本日無地點資料",
+      "trip.map_route_btn": "規劃路線",
+      "trip.map_open": "開啟",
+      "trip.timeline_mode": "時間軸",
+      "trip.list_mode": "清單",
+      "trip.timeline_no_time": "未定時間",
+      "trip.online_now": "在線",
     },
     en: {
       "app.title": "Trip Planner",
@@ -293,7 +301,15 @@ export function I18nProvider({ children }) {
       "dash.status_upcoming": "{days} days to go",
       "dash.status_ongoing": "Ongoing · Day {day}",
       "dash.status_ended": "Ended",
-      "dash.destination_search": "Search city (Chinese or English)"
+      "dash.destination_search": "Search city (Chinese or English)",
+      "trip.map_tab": "🗺️ Map",
+      "trip.map_no_locations": "No locations for this day",
+      "trip.map_route_btn": "Route",
+      "trip.map_open": "Open",
+      "trip.timeline_mode": "Timeline",
+      "trip.list_mode": "List",
+      "trip.timeline_no_time": "No time set",
+      "trip.online_now": "Online",
     }
   };
 
