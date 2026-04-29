@@ -39,7 +39,7 @@ function DonutChart({ data, total, symbol }) {
 
 export default function ExpenseTracker(props) {
   const { t } = useI18n();
-  const { expenses, setExpenses, categories, setCategories, exchangeRate, travelers, localCur = "KRW", currentUser, selfTraveler, uidToName = {} } = props;
+  const { expenses, onAddExpense, onDeleteExpense, categories, setCategories, exchangeRate, travelers, localCur = "KRW", currentUser, selfTraveler, uidToName = {} } = props;
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(localCur);
@@ -60,7 +60,8 @@ export default function ExpenseTracker(props) {
       alert("金額必須是有效的正數字哦！");
       return;
     }
-    setExpenses(prev => [...prev, { id: Date.now(), desc, amount: amt, currency, category: cat, payer, split, time: new Date().toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }), creatorUid: currentUser?.uid || null }]);
+    const newExp = { id: Date.now().toString(), desc, amount: amt, currency, category: cat, payer, split, time: new Date().toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }), creatorUid: currentUser?.uid || null };
+    if (onAddExpense) onAddExpense(newExp);
     setDesc(""); setAmount("");
   };
 
@@ -279,7 +280,7 @@ export default function ExpenseTracker(props) {
               </div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", flexShrink: 0 }}>{CURRENCIES[e.currency || localCur]?.symbol || e.currency} {e.amount.toLocaleString()}</div>
               {(!e.creatorUid || e.creatorUid === currentUser?.uid) && (
-                <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ border: "none", background: "transparent", color: "#ccc", fontSize: 14, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
+                <button onClick={() => onDeleteExpense && onDeleteExpense(e.id)} style={{ border: "none", background: "transparent", color: "#ccc", fontSize: 14, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
               )}
             </div>
           ))}

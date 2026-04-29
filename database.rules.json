@@ -13,7 +13,7 @@
           },
           "memberProfiles": {
             "$profileKey": {
-              ".write": "auth != null && (auth.uid === $creatorUid || root.child('trips').child($creatorUid).child($tripId).child('members').child(auth.uid).exists())"
+              ".write": "auth != null && (auth.uid === $creatorUid || root.child('trips').child($creatorUid).child($tripId).child('members').child(auth.uid).exists() || newData.child('uid').val() === auth.uid || data.child('uid').val() === auth.uid)"
             }
           }
         }
@@ -32,6 +32,24 @@
         ".read": "auth != null && auth.uid === $uid",
         "$tripId": {
           ".write": "auth != null && (auth.uid === $uid || data.val() !== null)"
+        }
+      }
+    },
+    "privateData": {
+      "$tripId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "expenses": {
+      "$creatorUid": {
+        "$tripId": {
+          ".read": "auth != null && (auth.uid === $creatorUid || root.child('trips').child($creatorUid).child($tripId).child('members').child(auth.uid).exists())",
+          "$expenseId": {
+            ".write": "auth != null && (data.exists() ? data.child('creatorUid').val() === auth.uid : true) && (newData.exists() ? newData.child('creatorUid').val() === auth.uid : true)"
+          }
         }
       }
     },

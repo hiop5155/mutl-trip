@@ -240,19 +240,20 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
     };
   }, [tripTitleVal, tripMeta?.name]);
 
+  const lastSavedPrivateState = useRef("");
+
   useEffect(() => {
-    if (!db) { setLoaded(true); return; }
+    if (!db || !currentUser?.uid) { setLoaded(true); return; }
+    
+    // 1. Trip Data (Public to members)
     const dataPath = creatorUid ? `tripData/${creatorUid}/${tripId}` : `tripData/${tripId}`;
-    const unsub = onValue(ref(db, dataPath), (snapshot) => {
+    const unsubTrip = onValue(ref(db, dataPath), (snapshot) => {
       const p = snapshot.val();
       if (p) {
-        const stateStr = JSON.stringify(p);
+        const stateStr = JSON.stringify({ days: p.days, expCats: p.expCats, flights: p.flights, accommodation: p.accommodation });
         if (stateStr !== lastSavedState.current) {
           lastSavedState.current = stateStr;
           if (p.days) setDays(p.days);
-          if (p.sharedNotes) setSharedNotes(p.sharedNotes);
-          if (p.packingList) setPackingList(p.packingList);
-          if (p.expenses) setExpenses(p.expenses);
           if (p.expCats) setExpCats(p.expCats);
           if (p.flights) setFlights(p.flights);
           if (p.accommodation) setAccommodation(p.accommodation);
@@ -260,26 +261,83 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
       }
       setLoaded(true);
     });
-    return () => unsub();
-  }, [tripId]);
 
-  const persist = useCallback((d, ex, ec, f, a, sn, pl) => {
+    // 2. Private Data (Notes & PackingList)
+    const privatePath = `privateData/${tripId}/${currentUser.uid}`;
+    const unsubPrivate = onValue(ref(db, privatePath), (snapshot) => {
+      const p = snapshot.val();
+      if (p) {
+        const stateStr = JSON.stringify({ sharedNotes: p.sharedNotes, packingList: p.packingList });
+        if (stateStr !== lastSavedPrivateState.current) {
+          lastSavedPrivateState.current = stateStr;
+          setSharedNotes(p.sharedNotes || []);
+          setPackingList(p.packingList || []);
+        }
+      } else {
+        setSharedNotes([]);
+        setPackingList([]);
+      }
+    });
+
+    // 3. Expenses (Public read, Private write)
+    const expOwner = creatorUid || currentUser.uid;
+    const expPath = `expenses/${expOwner}/${tripId}`;
+    const unsubExp = onValue(ref(db, expPath), (snapshot) => {
+      const p = snapshot.val() || {};
+      const expArray = Object.values(p).sort((a,b) => Number(a.id) - Number(b.id));
+      setExpenses(expArray);
+    });
+
+    return () => { unsubTrip(); unsubPrivate(); unsubExp(); };
+  }, [tripId, creatorUid, currentUser?.uid]);
+
+  const persistTrip = useCallback((d, ec, f, a) => {
     if (!db) return;
-    const currentStateString = JSON.stringify({ days: d, expenses: ex, expCats: ec, flights: f, accommodation: a, sharedNotes: sn, packingList: pl });
+    const currentStateString = JSON.stringify({ days: d, expCats: ec, flights: f, accommodation: a });
     if (lastSavedState.current !== currentStateString) {
       lastSavedState.current = currentStateString;
       const dataPath = creatorUid ? `tripData/${creatorUid}/${tripId}` : `tripData/${tripId}`;
-      firebaseSet(ref(db, dataPath), {
-        days: d || [], sharedNotes: sn || [], packingList: pl || [], expenses: ex || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
-      }).catch(e => console.error("同步至雲端失敗", e));
+      update(ref(db, dataPath), {
+        days: d || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
+      }).catch(e => console.error("同步 TripData 失敗", e));
     }
   }, [tripId, creatorUid]);
 
-  useEffect(() => {
-    if (loaded && (days.length > 0 || expenses.length > 0 || sharedNotes.length > 0 || packingList.length > 0)) {
-      persist(days, expenses, expCats, flights, accommodation, sharedNotes, packingList);
+  const persistPrivate = useCallback((sn, pl) => {
+    if (!db || !currentUser?.uid) return;
+    const currentStateString = JSON.stringify({ sharedNotes: sn, packingList: pl });
+    if (lastSavedPrivateState.current !== currentStateString) {
+      lastSavedPrivateState.current = currentStateString;
+      const privatePath = `privateData/${tripId}/${currentUser.uid}`;
+      update(ref(db, privatePath), {
+        sharedNotes: sn || [], packingList: pl || []
+      }).catch(e => console.error("同步 PrivateData 失敗", e));
     }
-  }, [days, expenses, expCats, flights, accommodation, sharedNotes, packingList, loaded, persist]);
+  }, [tripId, currentUser?.uid]);
+
+  useEffect(() => {
+    if (loaded && (days.length > 0)) {
+      persistTrip(days, expCats, flights, accommodation);
+    }
+  }, [days, expCats, flights, accommodation, loaded, persistTrip]);
+
+  useEffect(() => {
+    if (loaded && (sharedNotes.length > 0 || packingList.length > 0)) {
+      persistPrivate(sharedNotes, packingList);
+    }
+  }, [sharedNotes, packingList, loaded, persistPrivate]);
+
+  const handleAddExpense = (newExp) => {
+    if (!db) return;
+    const expPath = `expenses/${creatorUid || currentUser.uid}/${tripId}/${newExp.id}`;
+    firebaseSet(ref(db, expPath), newExp).catch(e => alert("新增記帳失敗：" + e.message));
+  };
+
+  const handleDeleteExpense = (expId) => {
+    if (!db) return;
+    const expPath = `expenses/${creatorUid || currentUser.uid}/${tripId}/${expId}`;
+    remove(ref(db, expPath)).catch(e => alert("刪除記帳失敗：" + e.message));
+  };
 
   const addSharedNote = () => {
     if (!sharedNoteText.trim()) return;
@@ -517,7 +575,7 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
           );
         })()}
 
-        {activeTab === "expense" && <ExpenseTracker expenses={expenses} setExpenses={setExpenses} categories={expCats} setCategories={setExpCats} exchangeRate={exchangeRate} travelers={travelers} localCur={localCur} currentUser={currentUser} selfTraveler={selfTraveler} uidToName={uidToName} />}
+        {activeTab === "expense" && <ExpenseTracker expenses={expenses} onAddExpense={handleAddExpense} onDeleteExpense={handleDeleteExpense} categories={expCats} setCategories={setExpCats} exchangeRate={exchangeRate} travelers={travelers} localCur={localCur} currentUser={currentUser} selfTraveler={selfTraveler} uidToName={uidToName} />}
 
         {activeTab === "itinerary" && (
           <div>

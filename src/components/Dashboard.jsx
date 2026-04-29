@@ -23,10 +23,10 @@ function CityPicker({ value, onChange, placeholder }) {
 
   const filtered = query.trim()
     ? DESTINATION_CITIES.filter(c =>
-        c.name.includes(query) ||
-        c.en.toLowerCase().includes(query.toLowerCase()) ||
-        (c.country_zh || "").includes(query)
-      )
+      c.name.includes(query) ||
+      c.en.toLowerCase().includes(query.toLowerCase()) ||
+      (c.country_zh || "").includes(query)
+    )
     : DESTINATION_CITIES;
 
   const select = (city) => { onChange(city); setQuery(""); setOpen(false); };
@@ -219,8 +219,8 @@ function InviteModal({ trip, currentUser, onClose }) {
                           {expired
                             ? t("dash.invite_expired")
                             : remaining !== null
-                            ? t("dash.invite_hours_left").replace("{h}", remaining)
-                            : t("dash.invite_no_expiry")}
+                              ? t("dash.invite_hours_left").replace("{h}", remaining)
+                              : t("dash.invite_no_expiry")}
                         </div>
                       </div>
                       <button onClick={() => handleCopy(token)}
@@ -525,8 +525,8 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
                   const label = status.type === "upcoming"
                     ? t("dash.status_upcoming").replace("{days}", status.days)
                     : status.type === "ongoing"
-                    ? t("dash.status_ongoing").replace("{day}", status.day)
-                    : t("dash.status_ended");
+                      ? t("dash.status_ongoing").replace("{day}", status.day)
+                      : t("dash.status_ended");
                   return (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{trip.dateStart} — {trip.dateEnd}</span>
