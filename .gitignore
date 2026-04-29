@@ -23,7 +23,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
+.claude/*
+claude.sh
 # Environment Variables (DO NOT COMMIT SECRETS!)
 .env
 .env.*

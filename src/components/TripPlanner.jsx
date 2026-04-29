@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useI18n } from '../lib/I18nContext.jsx';
 import { db } from "../lib/firebase.js";
-import { ref, onValue, set as firebaseSet, update, onDisconnect, remove } from "firebase/database";
+import { ref, get, onValue, set as firebaseSet, update, onDisconnect, remove } from "firebase/database";
 import { FlightCard, AccommodationCard, TimePicker } from "./Cards.jsx";
 import ItemModal from "./ItemModal.jsx";
 import ExpenseTracker from "./ExpenseTracker.jsx";
@@ -10,13 +10,20 @@ import { TC, TYPE_CFG } from "../lib/consts.js";
 const emailToKey = email => email.toLowerCase().replace(/\./g, '_').replace(/@/g, '-');
 
 const computeTravelers = (meta) => {
-  const allowed = Object.values(meta.allowedEmails || {});
-  if (allowed.length === 0) return meta.travelers || ["Traveler"]; // backward compat
+  const members = meta.members || {};
+  const allowed = Object.values(members);
+  if (allowed.length === 0) {
+    // Fallback for old format
+    const oldAllowed = Object.values(meta.allowedEmails || {});
+    if (oldAllowed.length === 0) return meta.travelers || ["Traveler"];
+    const profiles = meta.memberProfiles || {};
+    return oldAllowed.map(email => profiles[emailToKey(email)]?.displayName || email);
+  }
   const profiles = meta.memberProfiles || {};
   return allowed.map(email => profiles[emailToKey(email)]?.displayName || email);
 };
 
-export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, onBack }) {
+export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser, isAdmin, onBack }) {
   const { t } = useI18n();
   const [days, setDays] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -39,6 +46,7 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
   const [packingList, setPackingList] = useState([]);
   const [packingText, setPackingText] = useState("");
   const [weatherByDate, setWeatherByDate] = useState({});
+  const [memberUserProfiles, setMemberUserProfiles] = useState({});
   const [expenses, setExpenses] = useState([]);
   const [expCats, setExpCats] = useState([]);
   const [flights, setFlights] = useState({ outbound: {}, inbound: {} });
@@ -127,22 +135,43 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
     })();
   }, [liveTripMeta.destination, liveTripMeta.dateStart, liveTripMeta.dateEnd]);
 
+  // 讀取所有成員的 userProfiles（取得其自訂更新的展示名稱）
+  useEffect(() => {
+    if (!db) return;
+    const members = liveTripMeta.members || {};
+    const uids = Object.keys(members);
+    if (uids.length === 0) return;
+    Promise.all(uids.map(uid => get(ref(db, `userProfiles/${uid}`)).then(s => ({ uid, d: s.val() }))))
+      .then(results => {
+        const map = {};
+        results.forEach(({ uid, d }) => { if (d) map[uid] = d; });
+        setMemberUserProfiles(map);
+      })
+      .catch(() => {});
+  }, [liveTripMeta.members]);
+
   useEffect(() => {
     if (!db || !currentUser?.email) return;
     const key = emailToKey(currentUser.email);
+    // Write member profile to trip meta (works for both old and new format)
+    const profilePath = creatorUid
+      ? `trips/${creatorUid}/${tripId}/memberProfiles/${key}`
+      : `trips/${tripId}/memberProfiles/${key}`;
     update(ref(db), {
-      [`trips/${tripId}/memberProfiles/${key}`]: {
+      [profilePath]: {
         uid: currentUser.uid,
         email: currentUser.email.toLowerCase(),
         displayName: currentUser.displayName || "",
         photoURL: currentUser.photoURL || "",
       }
     }).catch(e => console.error("Failed to write member profile", e));
-    const unsub = onValue(ref(db, `trips/${tripId}`), (snap) => {
+    // Listen to live trip meta
+    const metaPath = creatorUid ? `trips/${creatorUid}/${tripId}` : `trips/${tripId}`;
+    const unsub = onValue(ref(db, metaPath), (snap) => {
       if (snap.val()) setLiveTripMeta(snap.val());
     });
     return () => unsub();
-  }, [tripId, currentUser]);
+  }, [tripId, creatorUid, currentUser]);
 
   // Realtime presence — write on connect, remove on disconnect/unmount
   useEffect(() => {
@@ -213,7 +242,8 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
 
   useEffect(() => {
     if (!db) { setLoaded(true); return; }
-    const unsub = onValue(ref(db, `tripData/${tripId}`), (snapshot) => {
+    const dataPath = creatorUid ? `tripData/${creatorUid}/${tripId}` : `tripData/${tripId}`;
+    const unsub = onValue(ref(db, dataPath), (snapshot) => {
       const p = snapshot.val();
       if (p) {
         const stateStr = JSON.stringify(p);
@@ -238,11 +268,12 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
     const currentStateString = JSON.stringify({ days: d, expenses: ex, expCats: ec, flights: f, accommodation: a, sharedNotes: sn, packingList: pl });
     if (lastSavedState.current !== currentStateString) {
       lastSavedState.current = currentStateString;
-      firebaseSet(ref(db, `tripData/${tripId}`), {
+      const dataPath = creatorUid ? `tripData/${creatorUid}/${tripId}` : `tripData/${tripId}`;
+      firebaseSet(ref(db, dataPath), {
         days: d || [], sharedNotes: sn || [], packingList: pl || [], expenses: ex || [], expCats: ec || [], flights: f || { outbound: {}, inbound: {} }, accommodation: a || {}
       }).catch(e => console.error("同步至雲端失敗", e));
     }
-  }, [tripId]);
+  }, [tripId, creatorUid]);
 
   useEffect(() => {
     if (loaded && (days.length > 0 || expenses.length > 0 || sharedNotes.length > 0 || packingList.length > 0)) {
@@ -321,7 +352,8 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
   const saveTripTitle = () => {
     if (tripTitleVal.trim() && tripTitleVal.trim() !== tripMeta.name) {
       if (db) {
-        update(ref(db), { [`trips/${tripId}/name`]: tripTitleVal.trim() }).catch(e => console.error(e));
+        const metaPath = creatorUid ? `trips/${creatorUid}/${tripId}/name` : `trips/${tripId}/name`;
+        update(ref(db), { [metaPath]: tripTitleVal.trim() }).catch(e => console.error(e));
       }
       tripMeta.name = tripTitleVal.trim();
     } else {
@@ -721,50 +753,104 @@ export default function TripPlanner({ tripId, tripMeta, currentUser, isAdmin, on
         })()}
 
         {activeTab === "members" && (() => {
-          const allowedEmails = Object.values(liveTripMeta.allowedEmails || {});
-          const profiles = liveTripMeta.memberProfiles || {};
-          if (allowedEmails.length === 0) {
-            return (
-              <div style={{ animation: "fadeIn 0.3s ease" }}>
-                <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                  {t("trip.member_legacy")}
+          // New format: members = { uid: email }
+          const membersMap = liveTripMeta.members || {};
+          const memberEntries = Object.entries(membersMap);
+          // Old format fallback
+          const hasNewFormat = Object.keys(membersMap).length > 0 || liveTripMeta.creatorUid;
+          if (!hasNewFormat) {
+            const oldEmails = Object.values(liveTripMeta.allowedEmails || {});
+            if (oldEmails.length === 0) {
+              return (
+                <div style={{ animation: "fadeIn 0.3s ease" }}>
+                  <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                    {t("trip.member_legacy")}
+                  </div>
                 </div>
-              </div>
-            );
+              );
+            }
           }
+          // Creator row + member rows
+          // 從 memberProfiles 反查 creator 的 email / displayName
+          const profiles = liveTripMeta.memberProfiles || {};
+          const creatorProfile = Object.values(profiles).find(p => p.uid === creatorUid);
+          const creatorDisplay = creatorProfile?.displayName || creatorProfile?.email || t("dash.share_creator");
+          const creatorSub = creatorProfile?.email || "";
+          // Helper: 優先讀 userProfiles（自訂更新的展示名稱），再從 memberProfiles fallback
+          const getDisplayName = (uid) => {
+            const up = memberUserProfiles[uid];
+            if (up?.displayName) return up.displayName;
+            const p = Object.values(profiles).find(pr => pr.uid === uid);
+            return p?.displayName || null;
+          };
           return (
             <div style={{ animation: "fadeIn 0.3s ease" }}>
               <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 18, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)", marginBottom: 16 }}>{t("trip.members_title")}</div>
-                {allowedEmails.map((email, idx) => {
-                  const key = emailToKey(email);
-                  const profile = profiles[key];
-                  const hasJoined = !!profile?.uid;
-                  const isCreator = email.toLowerCase() === liveTripMeta.creatorEmail?.toLowerCase();
-                  const isMe = email.toLowerCase() === currentUser?.email?.toLowerCase();
-                  const displayName = profile?.displayName || (hasJoined ? email.split('@')[0] : null);
+
+                {/* Creator row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--border-light)" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--btn-bg)", color: "var(--btn-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
+                    {creatorDisplay[0]?.toUpperCase() || "★"}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{creatorDisplay}</span>
+                      <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#FFF3E0", color: "#E65100", fontWeight: 700, flexShrink: 0 }}>{t("dash.share_creator")}</span>
+                      {creatorUid === currentUser?.uid && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--bg-accent)", color: "var(--text-muted)", fontWeight: 600, flexShrink: 0 }}>{t("dash.share_you")}</span>}
+                    </div>
+                    {creatorSub && <div style={{ fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{creatorSub}</div>}
+                  </div>
+                </div>
+
+                {/* Member rows */}
+                {memberEntries.map(([uid, email], idx) => {
+                  const isMe = uid === currentUser?.uid;
+                  const displayName = getDisplayName(uid);
                   return (
-                    <div key={email} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: idx < allowedEmails.length - 1 ? "1px solid var(--border-light)" : "none" }}>
-                      {profile?.photoURL
-                        ? <img src={profile.photoURL} alt="" referrerPolicy="no-referrer" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                        : <div style={{ width: 38, height: 38, borderRadius: "50%", background: hasJoined ? "var(--btn-bg)" : "var(--border-main)", color: "var(--btn-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
-                            {(displayName || email)[0].toUpperCase()}
-                          </div>
-                      }
+                    <div key={uid} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: idx < memberEntries.length - 1 ? "1px solid var(--border-light)" : "none" }}>
+                      <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--btn-bg)", color: "var(--btn-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
+                        {(displayName || email)[0].toUpperCase()}
+                      </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: hasJoined ? "var(--text-main)" : "var(--text-muted)" }}>
-                            {displayName || email}
-                          </span>
-                          {isCreator && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#FFF3E0", color: "#E65100", fontWeight: 700 }}>{t("dash.share_creator")}</span>}
+                          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>{displayName || email}</span>
                           {isMe && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--bg-accent)", color: "var(--text-muted)", fontWeight: 600 }}>{t("dash.share_you")}</span>}
-                          {!hasJoined && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--border-light)", color: "var(--text-muted)" }}>{t("trip.member_not_joined")}</span>}
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{email}</div>
+                        {/* 顯示 email，若 displayName 存在則 email 作為副標題 */}
+                        {displayName && <div style={{ fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</div>}
                       </div>
                     </div>
                   );
                 })}
+
+                {memberEntries.length === 0 && (() => {
+                  /* Fallback: 讀舊格式 memberProfiles（migration 後 members 可能是空的，但 profiles 還在）*/
+                  const profiles = liveTripMeta.memberProfiles || {};
+                  const profileEntries = Object.entries(profiles)
+                    .filter(([, p]) => p && p.email)
+                    .filter(([, p]) => p.uid !== creatorUid); /* 排除 creator 自己 */
+                  if (profileEntries.length === 0) {
+                    return <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "10px 0" }}>{t("dash.invite_no_members")}</div>;
+                  }
+                  return profileEntries.map(([key, profile], idx) => {
+                    const isMe = profile.uid === currentUser?.uid;
+                    return (
+                      <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: idx < profileEntries.length - 1 ? "1px solid var(--border-light)" : "none" }}>
+                        <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--btn-bg)", color: "var(--btn-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
+                          {(profile.displayName || profile.email || "?")[0].toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>{profile.displayName || profile.email}</span>
+                            {isMe && <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--bg-accent)", color: "var(--text-muted)", fontWeight: 600 }}>{t("dash.share_you")}</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{profile.email}</div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           );

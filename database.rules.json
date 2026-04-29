@@ -1,0 +1,59 @@
+{
+  "rules": {
+    "trips": {
+      "$creatorUid": {
+        ".read": "auth != null && auth.uid === $creatorUid",
+        "$tripId": {
+          ".read": "auth != null && (auth.uid === $creatorUid || data.child('members').child(auth.uid).exists())",
+          ".write": "auth != null && auth.uid === $creatorUid",
+          "members": {
+            "$uid": {
+              ".write": "auth != null && (auth.uid === $uid || auth.uid === $creatorUid)"
+            }
+          },
+          "memberProfiles": {
+            "$profileKey": {
+              ".write": "auth != null && (auth.uid === $creatorUid || root.child('trips').child($creatorUid).child($tripId).child('members').child(auth.uid).exists())"
+            }
+          }
+        }
+      }
+    },
+    "tripData": {
+      "$creatorUid": {
+        "$tripId": {
+          ".read": "auth != null && (auth.uid === $creatorUid || root.child('trips').child($creatorUid).child($tripId).child('members').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.uid === $creatorUid || root.child('trips').child($creatorUid).child($tripId).child('members').child(auth.uid).exists())"
+        }
+      }
+    },
+    "memberIndex": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$tripId": {
+          ".write": "auth != null && (auth.uid === $uid || data.val() !== null)"
+        }
+      }
+    },
+    "invites": {
+      ".read": "auth != null",
+      "$token": {
+        ".write": "auth != null && (newData.child('creatorUid').val() === auth.uid || !newData.exists())"
+      }
+    },
+    "presence": {
+      "$tripId": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "userProfiles": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}

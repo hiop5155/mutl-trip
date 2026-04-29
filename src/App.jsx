@@ -1,30 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard.jsx';
 import TripPlanner from './components/TripPlanner.jsx';
+import InviteJoin from './components/InviteJoin.jsx';
 import { auth, db } from './lib/firebase.js';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { ref, onValue, update } from 'firebase/database';
+import { ref, onValue, update, get } from 'firebase/database';
 import { useI18n } from './lib/I18nContext.jsx';
 
-// 管理員帳號：可建立行程、看到所有行程
-const ADMIN_EMAILS = [
-  "hiop5155@gmail.com",
-  "kj8212123@gmail.com",
-];
+// 管理員 email 清單（可加入你自己的 email 取得 isAdmin 權限）
+// 新架構下所有登入者都能建立行程，isAdmin 只影響能否編輯/刪除別人的行程
+const ADMIN_EMAILS = [];
 
 export default function App() {
   const { lang, setLang, theme, setTheme, t } = useI18n();
   const [currentTrip, setCurrentTrip] = useState(null);
+
   const [user, setUser] = useState(undefined);
   const [isAdmin, setIsAdmin] = useState(false);
   const [customDisplayName, setCustomDisplayName] = useState(null);
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState("");
 
-  // Read trip ID from URL hash on first load
+  // Parse URL hash: #trip_xxx (direct link) or invite#TOKEN (invite link)
   const [initialTripId] = useState(() => {
     const h = window.location.hash.slice(1);
     return h.startsWith('trip_') ? h : null;
+  });
+  // inviteToken needs a setter so onError can clear state (not just the URL hash)
+  const [inviteToken, setInviteToken] = useState(() => {
+    const h = window.location.hash.slice(1);
+    return h.startsWith('invite_') ? h.slice(7) : null;
   });
 
   useEffect(() => {
@@ -86,6 +91,12 @@ export default function App() {
     displayName: customDisplayName || user.displayName,
     photoURL: user.photoURL,
   } : null;
+
+  const handleInviteJoined = (trip) => {
+    setInviteToken(null);
+    history.replaceState(null, '', '#' + trip.id);
+    setCurrentTrip(trip);
+  };
 
   const shownName = customDisplayName || user?.displayName || user?.email;
 
@@ -152,10 +163,18 @@ export default function App() {
         </div>
       </div>
 
-      {currentTrip ? (
+      {inviteToken && !currentTrip ? (
+        <InviteJoin
+          token={inviteToken}
+          currentUser={effectiveUser}
+          onJoined={handleInviteJoined}
+          onError={() => { setInviteToken(null); history.replaceState(null, '', location.pathname); }}
+        />
+      ) : currentTrip ? (
         <TripPlanner
           tripId={currentTrip.id}
           tripMeta={currentTrip}
+          creatorUid={currentTrip.creatorUid}
           currentUser={effectiveUser}
           isAdmin={isAdmin}
           onBack={handleBack}
