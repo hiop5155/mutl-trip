@@ -357,7 +357,7 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
 
     const updates = {};
     updates[`trips/${user.uid}/${tripId}`] = meta;
-    updates[`tripData/${user.uid}/${tripId}`] = { days, notes: "", expenses: [], expCats: DEFAULT_EXP_CATS, flights: { outbound: {}, inbound: {} }, accommodation: {} };
+    updates[`tripData/${user.uid}/${tripId}`] = { days, expCats: DEFAULT_EXP_CATS, flights: { outbound: {}, inbound: {} }, accommodation: {} };
 
     update(ref(db), updates).then(() => {
       setShowNew(false);
@@ -371,6 +371,8 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
     const updates = {
       [`trips/${trip.creatorUid}/${trip.id}`]: null,
       [`tripData/${trip.creatorUid}/${trip.id}`]: null,
+      [`expenses/${trip.creatorUid}/${trip.id}`]: null,
+      [`privateData/${trip.id}`]: null,
     };
     // Also clean up memberIndex for all members
     Object.keys(trip.members || {}).forEach(uid => {
@@ -450,12 +452,9 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
       const orig = snap.val() || {};
       const newTripData = {
         days: orig.days || [],
-        expenses: [],
         expCats: orig.expCats || DEFAULT_EXP_CATS,
         flights: { outbound: {}, inbound: {} },
         accommodation: {},
-        sharedNotes: [],
-        packingList: [],
       };
       await update(ref(db), {
         [`trips/${user.uid}/${newId}`]: newMeta,
