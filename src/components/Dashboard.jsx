@@ -163,16 +163,29 @@ function InviteModal({ trip, currentUser, onClose }) {
         {/* Members list */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>{t("dash.invite_members")}</div>
-          {/* Creator */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "var(--bg-accent)", borderRadius: 10, marginBottom: 4 }}>
-            <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#FFF3E0", color: "#E65100", fontWeight: 700 }}>{t("dash.share_creator")}</span>
-            <span style={{ fontSize: 13, color: "var(--text-main)" }}>{currentUser.email}</span>
-          </div>
-          {/* Members */}
-          {Object.entries(trip.members || {}).map(([uid, email]) => (
+          {/* Creator — always show the actual trip creator's email */}
+          {(() => {
+            const creatorProfile = trip.memberProfiles
+              ? Object.values(trip.memberProfiles).find(p => p.uid === trip.creatorUid)
+              : null;
+            const creatorEmail = creatorProfile?.email || trip.creatorUid;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "var(--bg-accent)", borderRadius: 10, marginBottom: 4 }}>
+                <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#FFF3E0", color: "#E65100", fontWeight: 700 }}>{t("dash.share_creator")}</span>
+                <span style={{ fontSize: 13, color: "var(--text-main)", flex: 1 }}>{creatorEmail}</span>
+                {trip.creatorUid === currentUser.uid && <span style={{ fontSize: 10, color: "var(--text-muted)" }}>（{t("dash.share_you")}）</span>}
+              </div>
+            );
+          })()}
+          {/* Members — exclude creator to avoid duplication */}
+          {Object.entries(trip.members || {})
+            .filter(([uid]) => uid !== trip.creatorUid)
+            .map(([uid, email]) => (
             <div key={uid} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 10, marginBottom: 4, background: uid === currentUser.uid ? "var(--bg-accent)" : "transparent", border: "1px solid var(--border-light)" }}>
-              <span style={{ fontSize: 13, color: "var(--text-main)", flex: 1 }}>{email}</span>
-              {uid === currentUser.uid && <span style={{ fontSize: 10, color: "var(--text-muted)" }}>（{t("dash.share_you")}）</span>}
+              <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                <span style={{ fontSize: 13, color: "var(--text-main)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
+                {uid === currentUser.uid && <span style={{ fontSize: 10, color: "var(--text-muted)" }}>（{t("dash.share_you")}）</span>}
+              </div>
               {/* Creator can remove others */}
               {isCreator && uid !== currentUser.uid && (
                 <button onClick={() => {
@@ -180,7 +193,7 @@ function InviteModal({ trip, currentUser, onClose }) {
                     [`trips/${trip.creatorUid}/${trip.id}/members/${uid}`]: null,
                     [`memberIndex/${uid}/${trip.id}`]: null,
                   });
-                }} style={{ border: "none", background: "transparent", color: "#E57373", cursor: "pointer", fontSize: 12 }}>{t("dash.share_remove")}</button>
+                }} style={{ border: "none", background: "transparent", color: "#E57373", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>{t("dash.share_remove")}</button>
               )}
               {/* Member can leave themselves */}
               {!isCreator && uid === currentUser.uid && (
@@ -191,11 +204,11 @@ function InviteModal({ trip, currentUser, onClose }) {
                     [`memberIndex/${uid}/${trip.id}`]: null,
                   });
                   onClose();
-                }} style={{ border: "none", background: "transparent", color: "#E57373", cursor: "pointer", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>{t("dash.leave_trip")}</button>
+                }} style={{ border: "none", background: "transparent", color: "#E57373", cursor: "pointer", fontSize: 12, flexShrink: 0, whiteSpace: "nowrap" }}>{t("dash.leave_trip")}</button>
               )}
             </div>
           ))}
-          {Object.keys(trip.members || {}).length === 0 && (
+          {Object.keys(trip.members || {}).filter(uid => uid !== trip.creatorUid).length === 0 && (
             <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "8px 0", textAlign: "center" }}>{t("dash.invite_no_members")}</div>
           )}
         </div>
@@ -269,6 +282,7 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
   const [editingEndDate, setEditingEndDate] = useState("");
   const [editingDestination, setEditingDestination] = useState(null);
   const [inviteTrip, setInviteTrip] = useState(null); // holds trip object
+  const [showGuide, setShowGuide] = useState(false);
 
   // New trip form state
   const [name, setName] = useState("");
@@ -485,9 +499,41 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
   const activeInviteTrip = inviteTrip ? (allTrips[inviteTrip.id] || inviteTrip) : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-main)", padding: "40px 20px" }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg-main)", padding: "16px 20px 40px" }}>
       <div style={{ maxWidth: 520, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--text-main)", marginBottom: 30 }}>🌍 {t("dash.title")}</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 30 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--text-main)", margin: 0 }}>🌍 {t("dash.title")}</h1>
+          <button onClick={() => setShowGuide(true)}
+            style={{ background: "var(--bg-accent)", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 12, color: "var(--text-main)", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+            {t("dash.guide_btn")}
+          </button>
+        </div>
+
+        {showGuide ? (
+          /* ── User Guide Page ── */
+          <div style={{ animation: "fadeIn 0.3s ease" }}>
+            <button onClick={() => setShowGuide(false)}
+              style={{ background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", padding: "4px 0", marginBottom: 16 }}>
+              {t("guide.back")}
+            </button>
+            <h2 style={{ fontSize: 22, fontWeight: 800, color: "var(--text-main)", marginBottom: 24, marginTop: 0 }}>{t("guide.title")}</h2>
+            {[
+              ["guide.s1_title", "guide.s1_desc"],
+              ["guide.s2_title", "guide.s2_desc"],
+              ["guide.s3_title", "guide.s3_desc"],
+              ["guide.s4_title", "guide.s4_desc"],
+              ["guide.s5_title", "guide.s5_desc"],
+              ["guide.s6_title", "guide.s6_desc"],
+              ["guide.tip_title", "guide.tip_desc"],
+            ].map(([titleKey, descKey]) => (
+              <div key={titleKey} style={{ background: "var(--bg-card)", borderRadius: 14, padding: "16px 18px", marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-main)", marginBottom: 8 }}>{t(titleKey)}</div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.7, whiteSpace: "pre-line" }}>{t(descKey)}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
 
         {loading ? (
           <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>{t("dash.loading")}</div>
@@ -657,9 +703,10 @@ export default function Dashboard({ user, isAdmin, onSelectTrip, initialTripId }
             </button>
           )}
         </div>
+        </>
+        )}
       </div>
 
-      {/* Invite modal */}
       {activeInviteTrip && (
         <InviteModal
           trip={activeInviteTrip}

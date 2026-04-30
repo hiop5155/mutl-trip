@@ -28,8 +28,24 @@ export default function InviteJoin({ token, currentUser, onJoined, onError }) {
         setTripName(invite.tripName || '');
         setStatus('joining');
 
-        // 3. 先寫入：加入 members + memberIndex + 刪除 token + memberProfile
-        //    members.$uid.write 允許寫入自己的 uid，所以不需要是 creator
+        // 3. 防止重複加入：若已是建立者或已在 members 中，直接視為成功
+        if (currentUser.uid === creatorUid) {
+          const tripSnap = await get(ref(db, `trips/${creatorUid}/${tripId}`));
+          const tripData = tripSnap.val();
+          await update(ref(db), { [`invites/${token}`]: null });
+          onJoined({ ...tripData, id: tripId, creatorUid });
+          return;
+        }
+        const memberSnap = await get(ref(db, `trips/${creatorUid}/${tripId}/members/${currentUser.uid}`));
+        if (memberSnap.exists()) {
+          const tripSnap = await get(ref(db, `trips/${creatorUid}/${tripId}`));
+          const tripData = tripSnap.val();
+          await update(ref(db), { [`invites/${token}`]: null });
+          onJoined({ ...tripData, id: tripId, creatorUid });
+          return;
+        }
+
+        // 4. 寫入：加入 members + memberIndex + 刪除 token + memberProfile
         const profileKey = emailToKey(currentUser.email);
         await update(ref(db), {
           [`trips/${creatorUid}/${tripId}/members/${currentUser.uid}`]: currentUser.email.toLowerCase(),
@@ -43,7 +59,7 @@ export default function InviteJoin({ token, currentUser, onJoined, onError }) {
           },
         });
 
-        // 4. 寫入後已在 members，現在才有權限讀行程
+        // 5. 寫入後已在 members，現在才有權限讀行程
         const tripSnap = await get(ref(db, `trips/${creatorUid}/${tripId}`));
         const tripData = tripSnap.val();
         if (!tripData) { setStatus('invalid'); return; }

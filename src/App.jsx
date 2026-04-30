@@ -20,9 +20,10 @@ export default function App() {
   const [customDisplayName, setCustomDisplayName] = useState(null);
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState("");
+  const [loginError, setLoginError] = useState(null); // 'missing_state' | null
 
   // Parse URL hash: #trip_xxx (direct link) or invite#TOKEN (invite link)
-  const [initialTripId] = useState(() => {
+  const [initialTripId, setInitialTripId] = useState(() => {
     const h = window.location.hash.slice(1);
     return h.startsWith('trip_') ? h : null;
   });
@@ -64,13 +65,20 @@ export default function App() {
   };
 
   const handleLogin = () => {
+    setLoginError(null);
     const provider = new GoogleAuthProvider();
-    signInWithPopup(auth, provider).catch(err => console.error("登入錯誤", err));
+    signInWithPopup(auth, provider).catch(err => {
+      console.error("登入錯誤", err);
+      const msg = (err.message || '') + (err.code || '');
+      if (msg.includes('missing initial state') || msg.includes('popup-closed') || msg.includes('internal-error') || err.code === 'auth/popup-blocked') {
+        setLoginError('missing_state');
+      }
+    });
   };
 
   const handleLogout = () => {
     if (window.confirm("確定要登出嗎？")) {
-      signOut(auth).then(() => { setCurrentTrip(null); history.replaceState(null, '', location.pathname); });
+      signOut(auth).then(() => { setCurrentTrip(null); setInitialTripId(null); history.replaceState(null, '', location.pathname); });
     }
   };
 
@@ -81,6 +89,7 @@ export default function App() {
 
   const handleBack = () => {
     setCurrentTrip(null);
+    setInitialTripId(null); // prevent Dashboard auto-navigate from re-triggering
     history.replaceState(null, '', location.pathname);
   };
 
@@ -100,13 +109,51 @@ export default function App() {
 
   const shownName = customDisplayName || user?.displayName || user?.email;
 
+  // Shared lang toggle shown on all pre-login screens
+  const LangToggle = () => (
+    <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999 }}>
+      <select value={lang} onChange={e => setLang(e.target.value)}
+        style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "6px 10px", borderRadius: 20, fontSize: 11, outline: "none", cursor: "pointer" }}>
+        <option value="zh">繁中</option>
+        <option value="en">EN</option>
+      </select>
+    </div>
+  );
+
   if (user === undefined) {
-    return <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-main)", color: "var(--text-muted)" }}>{t('app.loading')}</div>;
+    return (
+      <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-main)", color: "var(--text-muted)" }}>
+        <LangToggle />
+        {t('app.loading')}
+      </div>
+    );
+  }
+
+  if (loginError === 'missing_state') {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-main)", padding: 20 }}>
+        <LangToggle />
+        <div style={{ background: "var(--bg-card)", padding: "50px 40px", borderRadius: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.05)", textAlign: "center", maxWidth: 400, width: "100%" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🌐</div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: "var(--text-main)", margin: "0 0 12px 0" }}>{t('app.browser_required_title')}</h2>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.8, marginBottom: 28, whiteSpace: "pre-line" }}>
+            {t('app.browser_required_desc')}
+          </p>
+          <div style={{ display: "flex", gap: 10, flexDirection: "column" }}>
+            <button onClick={() => setLoginError(null)}
+              style={{ padding: "12px 20px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              {t('app.retry_login')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-main)", padding: 20 }}>
+        <LangToggle />
         <div style={{ background: "var(--bg-card)", padding: "50px 40px", borderRadius: 24, boxShadow: "0 10px 40px rgba(0,0,0,0.05)", textAlign: "center", maxWidth: 400, width: "100%" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>✈️</div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--text-main)", margin: "0 0 10px 0" }}>{t('app.title')}</h1>
@@ -122,22 +169,33 @@ export default function App() {
 
   return (
     <div style={{ position: "relative" }}>
-      <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999, display: "flex", gap: 8, alignItems: "center" }}>
+      {/* ── Fixed top bar: 50px, single line ── */}
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 50, zIndex: 9999, display: "flex", alignItems: "center", gap: 6, padding: "0 12px", pointerEvents: "none" }}>
+        {/* Back button — leftmost, only in trip view */}
+        {currentTrip && (
+          <button onClick={handleBack}
+            style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "5px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)", pointerEvents: "auto", whiteSpace: "nowrap", flexShrink: 0 }}>
+            {t('trip.back_dash')}
+          </button>
+        )}
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+        {/* Lang selector */}
         <select value={lang} onChange={e => setLang(e.target.value)}
-          style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "6px 10px", borderRadius: 20, fontSize: 11, outline: "none", cursor: "pointer", backdropFilter: "blur(4px)" }}>
+          style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "5px 8px", borderRadius: 20, fontSize: 11, outline: "none", cursor: "pointer", backdropFilter: "blur(4px)", pointerEvents: "auto", flexShrink: 0 }}>
           <option value="zh">繁中</option>
           <option value="en">EN</option>
         </select>
+        {/* Theme toggle */}
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "6px 10px", borderRadius: 20, fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)" }}>
+          style={{ background: "var(--bg-accent)", color: "var(--text-main)", border: "none", padding: "5px 9px", borderRadius: 20, fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)", pointerEvents: "auto", flexShrink: 0 }}>
           {theme === 'dark' ? '☀️' : '🌙'}
         </button>
-
-        {/* User identity + logout + name edit */}
-        <div style={{ background: "rgba(0,0,0,0.5)", color: "white", borderRadius: 20, fontSize: 11, backdropFilter: "blur(4px)", display: "flex", alignItems: "center", gap: 7, padding: "5px 12px 5px 6px" }}>
+        {/* User identity + logout */}
+        <div style={{ background: "rgba(0,0,0,0.5)", color: "white", borderRadius: 20, fontSize: 11, backdropFilter: "blur(4px)", display: "flex", alignItems: "center", gap: 6, padding: "4px 10px 4px 5px", pointerEvents: "auto", overflow: "hidden", maxWidth: 220, flexShrink: 1 }}>
           {user.photoURL
-            ? <img src={user.photoURL} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} referrerPolicy="no-referrer" />
-            : <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#C4A882", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{(shownName || "?")[0].toUpperCase()}</span>
+            ? <img src={user.photoURL} alt="" style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} referrerPolicy="no-referrer" />
+            : <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#C4A882", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{(shownName || "?")[0].toUpperCase()}</span>
           }
           {editingName ? (
             <input
@@ -147,41 +205,44 @@ export default function App() {
               onBlur={() => saveDisplayName(nameVal)}
               autoFocus
               placeholder={t('app.name_placeholder')}
-              style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.5)", color: "white", fontSize: 11, outline: "none", width: 100, padding: "0 0 1px 0" }}
+              style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.5)", color: "white", fontSize: 11, outline: "none", width: 80, padding: "0 0 1px 0", flexShrink: 1 }}
             />
           ) : (
             <span
               onClick={() => { setNameVal(shownName || ""); setEditingName(true); }}
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 1, minWidth: 0 }}
               title={t('app.edit_name')}
             >
               {shownName} ✏️
             </span>
           )}
-          <span style={{ opacity: 0.5 }}>·</span>
-          <button onClick={handleLogout} style={{ background: "transparent", border: "none", color: "white", fontSize: 11, cursor: "pointer", padding: 0 }}>{t('app.logout')}</button>
+          <span style={{ opacity: 0.5, flexShrink: 0 }}>·</span>
+          <button onClick={handleLogout} style={{ background: "transparent", border: "none", color: "white", fontSize: 11, cursor: "pointer", padding: 0, flexShrink: 0, whiteSpace: "nowrap" }}>{t('app.logout')}</button>
         </div>
       </div>
 
-      {inviteToken && !currentTrip ? (
-        <InviteJoin
-          token={inviteToken}
-          currentUser={effectiveUser}
-          onJoined={handleInviteJoined}
-          onError={() => { setInviteToken(null); history.replaceState(null, '', location.pathname); }}
-        />
-      ) : currentTrip ? (
-        <TripPlanner
-          tripId={currentTrip.id}
-          tripMeta={currentTrip}
-          creatorUid={currentTrip.creatorUid}
-          currentUser={effectiveUser}
-          isAdmin={isAdmin}
-          onBack={handleBack}
-        />
-      ) : (
-        <Dashboard user={user} isAdmin={isAdmin} onSelectTrip={handleSelectTrip} initialTripId={initialTripId} />
-      )}
+      {/* Content shifted down by bar height */}
+      <div style={{ paddingTop: 50 }}>
+        {inviteToken && !currentTrip ? (
+          <InviteJoin
+            token={inviteToken}
+            currentUser={effectiveUser}
+            onJoined={handleInviteJoined}
+            onError={() => { setInviteToken(null); history.replaceState(null, '', location.pathname); }}
+          />
+        ) : currentTrip ? (
+          <TripPlanner
+            tripId={currentTrip.id}
+            tripMeta={currentTrip}
+            creatorUid={currentTrip.creatorUid}
+            currentUser={effectiveUser}
+            isAdmin={isAdmin}
+            onBack={handleBack}
+          />
+        ) : (
+          <Dashboard user={user} isAdmin={isAdmin} onSelectTrip={handleSelectTrip} initialTripId={initialTripId} />
+        )}
+      </div>
     </div>
   );
 }

@@ -49,6 +49,8 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
   const [memberUserProfiles, setMemberUserProfiles] = useState({});
   const [expenses, setExpenses] = useState([]);
   const [expCats, setExpCats] = useState([]);
+  const [boardMessages, setBoardMessages] = useState([]);
+  const [boardInput, setBoardInput] = useState("");
   const [flights, setFlights] = useState({ outbound: {}, inbound: {} });
   const [accommodation, setAccommodation] = useState({});
   const [editingDayTitle, setEditingDayTitle] = useState(null);
@@ -288,8 +290,39 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
       setExpenses(expArray);
     });
 
-    return () => { unsubTrip(); unsubPrivate(); unsubExp(); };
+    // 4. Shared Board
+    const boardPath = `tripData/${creatorUid || currentUser.uid}/${tripId}/sharedBoard`;
+    const unsubBoard = onValue(ref(db, boardPath), (snapshot) => {
+      const raw = snapshot.val();
+      if (raw) {
+        const msgs = Object.values(raw).sort((a, b) => a.id - b.id);
+        setBoardMessages(msgs);
+      } else {
+        setBoardMessages([]);
+      }
+    });
+
+    return () => { unsubTrip(); unsubPrivate(); unsubExp(); unsubBoard(); };
   }, [tripId, creatorUid, currentUser?.uid]);
+
+  const handleBoardSend = () => {
+    if (!boardInput.trim() || !db) return;
+    const msgId = Date.now();
+    const ownerUid = creatorUid || currentUser.uid;
+    const authorName = uidToName[currentUser.uid] || currentUser.displayName || currentUser.email;
+    const boardPath = 'tripData/' + ownerUid + '/' + tripId + '/sharedBoard/' + msgId;
+    const newMsg = {
+      id: msgId,
+      text: boardInput.trim(),
+      authorUid: currentUser.uid,
+      authorName: authorName,
+      time: new Date().toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    };
+    const patch = {};
+    patch[boardPath] = newMsg;
+    update(ref(db), patch);
+    setBoardInput("");
+  };
 
   const persistTrip = useCallback((d, ec, f, a) => {
     if (!db) return;
@@ -431,11 +464,10 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-main)", fontFamily: "'Noto Sans TC','Noto Sans KR',sans-serif", paddingBottom: 80 }}>
-      <div style={{ background: "linear-gradient(135deg,#2D2926,#3D3530)", padding: "16px 20px 16px", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ background: "linear-gradient(135deg,#2D2926,#3D3530)", padding: "16px 20px 16px", position: "sticky", top: 50, zIndex: 100 }}>
         <div style={{ maxWidth: 520, margin: "0 auto" }}>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <button onClick={onBack} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 20, color: "var(--btn-text)", padding: "4px 12px", fontSize: 11, cursor: "pointer" }}>{t("trip.back_dash")}</button>
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: "#C4A882" }}>{tripMeta.dateStart} — {tripMeta.dateEnd}</div>
           </div>
 
@@ -909,10 +941,54 @@ export default function TripPlanner({ tripId, tripMeta, creatorUid, currentUser,
                     );
                   });
                 })()}
+
+              {/* ── Shared Message Board ── */}
+              <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid var(--border-light)" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)", marginBottom: 12 }}>💬 {t('trip.board_title')}</div>
+                <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+                  {boardMessages.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>{t('trip.board_empty')}</div>
+                  ) : boardMessages.map(msg => {
+                    const isMe = msg.authorUid === currentUser?.uid;
+                    const liveName = uidToName[msg.authorUid] || msg.authorName || "?";
+                    return (
+                      <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexDirection: isMe ? "row-reverse" : "row" }}>
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--btn-bg)", color: "var(--btn-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                          {liveName[0].toUpperCase()}
+                        </div>
+                        <div style={{ maxWidth: "75%" }}>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3, textAlign: isMe ? "right" : "left" }}>
+                            {isMe ? t('dash.share_you') : liveName} · {msg.time}
+                          </div>
+                          <div style={{ background: isMe ? "var(--btn-bg)" : "var(--bg-accent)", color: isMe ? "var(--btn-text)" : "var(--text-main)", borderRadius: isMe ? "14px 14px 4px 14px" : "14px 14px 14px 4px", padding: "8px 12px", fontSize: 13, lineHeight: 1.5, wordBreak: "break-word" }}>
+                            {msg.text}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    value={boardInput}
+                    onChange={e => setBoardInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleBoardSend(); } }}
+                    placeholder={t('trip.board_placeholder')}
+                    style={{ flex: 1, background: "var(--bg-accent)", border: "1px solid var(--border-main)", borderRadius: 10, padding: "8px 12px", fontSize: 13, color: "var(--text-main)", outline: "none" }}
+                  />
+                  <button
+                    onClick={handleBoardSend}
+                    style={{ padding: "8px 14px", background: "var(--btn-bg)", color: "var(--btn-text)", border: "none", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+                  >
+                    {t('trip.board_send')}
+                  </button>
+                </div>
               </div>
             </div>
+          </div>
           );
         })()}
+
       </div>
 
       {modalItem && <ItemModal item={modalItem} dayColor={modalDayColor} travelers={travelers} currentUser={currentUser} selfTraveler={selfTraveler} uidToName={uidToName} onClose={() => setModalItem(null)} onUpdate={updateModalItem} />}
